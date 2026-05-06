@@ -2572,6 +2572,14 @@
         by[n] = { dice: 0, sixes: 0, roundWins: 0, roundLosses: 0, roundTies: 0 };
       }
     });
+    var roster = Array.isArray(gs.risqueLuckySessionRoster) ? gs.risqueLuckySessionRoster : [];
+    roster.forEach(function (nm0) {
+      var n = nm0 != null ? String(nm0) : "";
+      if (!n) return;
+      if (!by[n]) {
+        by[n] = { dice: 0, sixes: 0, roundWins: 0, roundLosses: 0, roundTies: 0 };
+      }
+    });
   }
 
   function risqueRecordAttackRoundLedger(gs, snap) {
@@ -2764,11 +2772,36 @@
     var mostWinsLine = mostWinsNames.length
       ? mostWinsNames.map(function (n) { return "<strong>" + escapeHtmlLucky(n) + "</strong>"; }).join(", ")
       : "—";
+    var rowsHtml = "";
+    for (j = 0; j < sortable.length; j++) {
+      var ent = sortable[j];
+      var rr = ent.row || {};
+      var d = Number(rr.dice) || 0;
+      var s = Number(rr.sixes) || 0;
+      var w = Number(rr.roundWins) || 0;
+      var l = Number(rr.roundLosses) || 0;
+      var t = Number(rr.roundTies) || 0;
+      var expectedSixes = d / 6;
+      var decisions = w + l;
+      var winRatePct = decisions > 0 ? (w / decisions) * 100 : 0;
+      rowsHtml +=
+        "<tr>" +
+        "<td>" + escapeHtmlLucky(ent.pname) + "</td>" +
+        "<td>" + String(s) + "</td>" +
+        "<td>" + expectedSixes.toFixed(2) + "</td>" +
+        "<td>" + String(w) + "-" + String(l) + "-" + String(t) + "</td>" +
+        "<td>" + (decisions > 0 ? winRatePct.toFixed(1) + "%" : "—") + "</td>" +
+        "</tr>";
+    }
     el.innerHTML =
       '<div class="risque-host-lucky-inner hud-stats-inner">' +
-      '<p class="risque-host-lucky-lead">Attack dice only.</p>' +
+      '<p class="risque-host-lucky-lead">Attack dice only. Includes all players from session start (even eliminated).</p>' +
       '<p class="risque-host-lucky-postgame-line">Most <strong>sixes</strong>: ' + mostSixesLine + " — " + (maxSixes > -1 ? String(maxSixes) : "0") + "</p>" +
       '<p class="risque-host-lucky-postgame-line">Most <strong>wins</strong>: ' + mostWinsLine + " — " + (maxWins > -1 ? String(maxWins) : "0") + "</p>" +
+      '<table class="hud-stats-table risque-host-lucky-table" aria-label="Lucky results by player">' +
+      "<thead><tr><th>Player</th><th>6s</th><th>Avg 6s</th><th>W-L-T</th><th>Avg Wins</th></tr></thead>" +
+      "<tbody>" + rowsHtml + "</tbody>" +
+      "</table>" +
       postgameBlock +
       "</div>";
   }
@@ -5006,6 +5039,10 @@
       } catch (eReadyClr) {
         /* ignore */
       }
+      if (_pubBook.aerialReadyTimer) {
+        clearTimeout(_pubBook.aerialReadyTimer);
+        _pubBook.aerialReadyTimer = null;
+      }
       if (choice === "countered") {
         risquePublicShowAerialCancelledForStep(step, function () {
           risquePublicBookRunStepMapPart(idx, actingPlayer);
@@ -5058,14 +5095,24 @@
         } catch (eStepStateAerial) {
           /* ignore */
         }
-        try {
-          localStorage.setItem(
-            PUBLIC_AERIAL_DECISION_READY_KEY,
-            JSON.stringify({ seq: Number(proc.seq) || 0, ready: true, at: Date.now() })
-          );
-        } catch (eReadySet) {
-          /* ignore */
+        var aerialReadyDelayMs = useShelfRecap
+          ? Math.max(120, (Number(risquePublicShelfRecapLeadMs(idx)) || 0) + 140)
+          : 220;
+        if (_pubBook.aerialReadyTimer) {
+          clearTimeout(_pubBook.aerialReadyTimer);
+          _pubBook.aerialReadyTimer = null;
         }
+        _pubBook.aerialReadyTimer = setTimeout(function () {
+          _pubBook.aerialReadyTimer = null;
+          try {
+            localStorage.setItem(
+              PUBLIC_AERIAL_DECISION_READY_KEY,
+              JSON.stringify({ seq: Number(proc.seq) || 0, ready: true, at: Date.now() })
+            );
+          } catch (eReadySet) {
+            /* ignore */
+          }
+        }, aerialReadyDelayMs);
         var decisionChoice = readHostAerialDecisionForSeq(proc.seq);
         if (decisionChoice) {
           handleAerialChoice(decisionChoice);
@@ -6198,7 +6245,7 @@
     return normalized;
   }
 
-  var GRACE_CARDPLAY_START_MAX = 48;
+  var GRACE_PHASE_START_MAX = 220;
 
   function restoreGraceCardplaySnapshotsFromStorage() {
     if (window.risqueDisplayIsPublic) return;
@@ -6217,12 +6264,17 @@
       var i;
       for (i = 0; i < parsed.length; i++) {
         var e = parsed[i];
-        if (!e || typeof e.player !== "string" || typeof e.json !== "string") continue;
+        if (!e || typeof e.json !== "string") continue;
         var g = tryParse(e.json);
         if (!g) continue;
         var ph = String(g.phase || "");
-        if (ph !== "cardplay" && ph !== "con-cardplay") continue;
-        out.push({ player: e.player, json: e.json });
+        if (!ph || ph === "login") continue;
+        out.push({
+          kind: typeof e.kind === "string" ? e.kind : "phase",
+          player: typeof e.player === "string" ? e.player : String(g.currentPlayer || ""),
+          phase: typeof e.phase === "string" && e.phase ? e.phase : ph,
+          json: e.json
+        });
       }
       window.__risqueGraceCardplayStarts = out;
     } catch (eR) {
@@ -6230,7 +6282,7 @@
     }
   }
 
-  function persistGraceCardplaySnapshotsToStorage(arr) {
+  function persistGracePhaseSnapshotsToStorage(arr) {
     if (window.risqueDisplayIsPublic || !Array.isArray(arr)) return;
     try {
       localStorage.setItem(GRACE_SNAPSHOTS_STORAGE_KEY, JSON.stringify(arr));
@@ -6252,47 +6304,77 @@
   }
 
   /**
-   * Host: when the table first enters private cardplay for a player, remember that full state
-   * (beginning of that player's turn) for Grace rollback.
+   * Host: when the table enters a new phase, remember that full state
+   * (beginning of that phase) for Grace rollback.
    * @param {string|null} rawPrevJson — localStorage gameState *before* this write (phases often setItem directly).
    */
-  function recordGraceCardplayTurnStartWithPrev(rawPrevJson, nextGs) {
+  function recordGracePhaseStartWithPrev(rawPrevJson, nextGs) {
     if (window.risqueDisplayIsPublic || !nextGs || typeof nextGs !== "object") return;
+    if (window.__risqueGraceRollbackActive) return;
     try {
       var prev = rawPrevJson ? tryParse(rawPrevJson) : null;
+      /* Replay playback rapidly writes many intermediate states (highlights/warpath/selection flashes).
+       * Grace history should track live host play only, not replay transport states. */
+      if (
+        (nextGs && nextGs.risqueReplayPlaybackActive) ||
+        (prev && prev.risqueReplayPlaybackActive) ||
+        window.RISQUE_REPLAY_MACHINE
+      ) {
+        return;
+      }
+      if (rawPrevJson && typeof rawPrevJson === "string") {
+        /* UNDO is one-step and in-memory only; avoid array/storage churn on every save. */
+        window.__risqueGraceLastUndoJson = rawPrevJson;
+      }
       var prevPh = prev && prev.phase != null ? String(prev.phase) : "";
       var nextPh = nextGs.phase != null ? String(nextGs.phase) : "";
-      var enteringCardplay =
-        (nextPh === "cardplay" || nextPh === "con-cardplay") &&
-        prevPh !== nextPh &&
-        prevPh !== "cardplay" &&
-        prevPh !== "con-cardplay";
-      if (!enteringCardplay) return;
+      var enteringPhase = !!nextPh && nextPh !== "login" && prevPh !== nextPh;
       var cp = String(nextGs.currentPlayer || "");
-      if (!cp) return;
+      var prevCp = prev && prev.currentPlayer != null ? String(prev.currentPlayer) : "";
       var arr = window.__risqueGraceCardplayStarts;
       if (!Array.isArray(arr)) {
         window.__risqueGraceCardplayStarts = arr = [];
       }
-      var copy = JSON.parse(JSON.stringify(nextGs));
-      arr.push({ player: cp, json: JSON.stringify(copy) });
-      while (arr.length > GRACE_CARDPLAY_START_MAX) {
+      function pushGraceSnapshot(gsSnap, ph, pl, kind) {
+        if (!gsSnap || !ph || ph === "login") return;
+        var json;
+        try {
+          json = JSON.stringify(JSON.parse(JSON.stringify(gsSnap)));
+        } catch (eJ) {
+          return;
+        }
+        if (!json) return;
+        var last = arr.length ? arr[arr.length - 1] : null;
+        if (last && last.json === json) return;
+        arr.push({ kind: kind || "phase", player: pl || "", phase: ph, json: json });
+      }
+      if (!enteringPhase) {
+        return;
+      }
+      /* Phase rollback should restore the exact board *before* the next phase started
+       * (e.g. attack -> reinforce keeps completed attacks). */
+      if (prev && prevPh) {
+        pushGraceSnapshot(prev, prevPh, prevCp || cp, "phase");
+      }
+      /* Keep phase-entry snapshots too so repeated Grace can continue walking back cleanly. */
+      pushGraceSnapshot(nextGs, nextPh, cp, "phase");
+      while (arr.length > GRACE_PHASE_START_MAX) {
         arr.shift();
       }
-      persistGraceCardplaySnapshotsToStorage(arr);
+      persistGracePhaseSnapshotsToStorage(arr);
     } catch (eGrace) {
       /* ignore */
     }
   }
 
-  function recordGraceCardplayTurnStartIfNeeded(nextGs) {
+  function recordGracePhaseStartIfNeeded(nextGs) {
     var rawPrev = null;
     try {
       rawPrev = localStorage.getItem(STORAGE_KEY);
     } catch (eRead) {
       /* ignore */
     }
-    recordGraceCardplayTurnStartWithPrev(rawPrev, nextGs);
+    recordGracePhaseStartWithPrev(rawPrev, nextGs);
   }
 
   (function installGraceGameStatePersistHook() {
@@ -6339,7 +6421,7 @@
       if (key === STORAGE_KEY && !window.risqueDisplayIsPublic) {
         try {
           var nextGs = typeof val === "string" ? JSON.parse(val) : val;
-          recordGraceCardplayTurnStartWithPrev(rawPrev, nextGs);
+          recordGracePhaseStartWithPrev(rawPrev, nextGs);
         } catch (e1) {
           /* ignore */
         }
@@ -6347,21 +6429,45 @@
     };
   })();
 
-  function gracePreviousPlayerName(gs) {
-    if (!gs || !Array.isArray(gs.turnOrder) || !gs.turnOrder.length) return null;
-    var cp = gs.currentPlayer;
-    var idx = gs.turnOrder.indexOf(cp);
-    if (idx < 0) return null;
-    return gs.turnOrder[(idx - 1 + gs.turnOrder.length) % gs.turnOrder.length];
-  }
-
-  function graceFindLastSnapshotJsonForPlayer(playerName) {
+  function graceFindPreviousPhaseSnapshot(gs) {
     var arr = window.__risqueGraceCardplayStarts;
-    if (!Array.isArray(arr) || !playerName) return null;
+    if (!Array.isArray(arr) || !arr.length || !gs) return null;
+    var curPh = String(gs.phase || "");
+    var curPlayer = String(gs.currentPlayer || "");
     var i;
     for (i = arr.length - 1; i >= 0; i--) {
-      if (arr[i] && arr[i].player === playerName) {
-        return arr[i].json;
+      var e = arr[i];
+      if (!e || typeof e.json !== "string") continue;
+      var ph = String(e.phase || "");
+      var pl = String(e.player || "");
+      /* Skip exact current phase/player snapshot; return the immediately previous phase boundary. */
+      if (ph === curPh && pl === curPlayer) continue;
+      return { index: i, entry: e };
+    }
+    return null;
+  }
+
+  function graceFindUndoSnapshot(gs) {
+    if (!gs) return null;
+    var j = window.__risqueGraceLastUndoJson;
+    if (!j || typeof j !== "string") return null;
+    return { index: -1, entry: { json: j } };
+  }
+
+  function graceFindPlayerCycleSnapshot(gs) {
+    var arr = window.__risqueGraceCardplayStarts;
+    if (!Array.isArray(arr) || !arr.length || !gs) return null;
+    var cp = String(gs.currentPlayer || "");
+    if (!cp) return null;
+    var i;
+    for (i = arr.length - 1; i >= 0; i--) {
+      var e = arr[i];
+      if (!e || typeof e.json !== "string") continue;
+      var ep = String(e.player || "");
+      var ph = String(e.phase || "");
+      if (ep !== cp) continue;
+      if (ph === "cardplay" || ph === "con-cardplay") {
+        return { index: i, entry: e };
       }
     }
     return null;
@@ -8566,8 +8672,14 @@
   }
 
   var __risqueGracePickJsonCurrent = null;
-  var __risqueGracePickJsonPrevious = null;
+  var __risqueGracePickIndexCurrent = -1;
+  var __risqueGracePickJsonUndo = null;
+  var __risqueGracePickIndexUndo = -1;
+  var __risqueGracePickJsonCycle = null;
+  var __risqueGracePickIndexCycle = -1;
+  var __risqueGraceLastUndoJson = null;
   var __risqueGracePendingJson = null;
+  var __risqueGracePendingIndex = -1;
 
   var GRACE_HOST_OVERLAY_HTML_FRAGMENT =
     '<div id="risque-grace-host-overlay" class="risque-grace-host-overlay" hidden aria-hidden="true">' +
@@ -8578,10 +8690,11 @@
     "</div>" +
     '<div id="risque-grace-host-screen-pick" class="risque-grace-host-screen" hidden>' +
     '<p class="risque-grace-host-title">Grace rollback</p>' +
-    '<p class="risque-grace-host-desc">Return to the start of <strong>private cardplay</strong> for the current or previous player.</p>' +
+    '<p class="risque-grace-host-desc">Choose rollback mode.</p>' +
     '<p id="risque-grace-host-pick-warn" class="risque-grace-host-pick-warn" hidden></p>' +
-    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-current" disabled>This player\'s turn (cardplay start)</button>' +
-    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-previous" disabled>Previous player\'s turn (cardplay start)</button>' +
+    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-undo" disabled>1) Undo (last action)</button>' +
+    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-current" disabled>2) Roll back phase</button>' +
+    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-cycle" disabled>3) Complete player cycle</button>' +
     '<button type="button" class="risque-grace-host-btn" id="risque-grace-host-pick-cancel">Cancel</button>' +
     "</div>" +
     '<div id="risque-grace-host-screen-confirm" class="risque-grace-host-screen" hidden>' +
@@ -8596,7 +8709,12 @@
     var root = document.getElementById("runtime-hud-root");
     if (!root) return;
     var existing = document.getElementById("risque-grace-host-overlay");
-    if (existing && !document.getElementById("risque-grace-host-pick-warn")) {
+    if (
+      existing &&
+      (!document.getElementById("risque-grace-host-pick-warn") ||
+        !document.getElementById("risque-grace-host-opt-undo") ||
+        !document.getElementById("risque-grace-host-opt-cycle"))
+    ) {
       existing.parentNode.removeChild(existing);
       existing = null;
     }
@@ -8620,18 +8738,21 @@
     ov.setAttribute("aria-hidden", "true");
     hideAllGraceScreens();
     __risqueGracePendingJson = null;
+    __risqueGracePendingIndex = -1;
   }
 
   function graceUpdatePickScreenButtonsAndWarn() {
+    var b0 = document.getElementById("risque-grace-host-opt-undo");
     var b1 = document.getElementById("risque-grace-host-opt-current");
-    var b2 = document.getElementById("risque-grace-host-opt-previous");
+    var b3 = document.getElementById("risque-grace-host-opt-cycle");
     var warn = document.getElementById("risque-grace-host-pick-warn");
+    if (b0) b0.disabled = !__risqueGracePickJsonUndo;
     if (b1) b1.disabled = !__risqueGracePickJsonCurrent;
-    if (b2) b2.disabled = !__risqueGracePickJsonPrevious;
+    if (b3) b3.disabled = !__risqueGracePickJsonCycle;
     if (warn) {
       var arr = window.__risqueGraceCardplayStarts;
       var noArr = !Array.isArray(arr) || !arr.length;
-      var noSnap = !__risqueGracePickJsonCurrent && !__risqueGracePickJsonPrevious;
+      var noSnap = !__risqueGracePickJsonUndo && !__risqueGracePickJsonCurrent && !__risqueGracePickJsonCycle;
       if (noArr || noSnap) {
         warn.textContent = "Are you fuckin kidding me?";
         warn.hidden = false;
@@ -8652,6 +8773,7 @@
       return;
     }
     __risqueGracePendingJson = null;
+    __risqueGracePendingIndex = -1;
     hideAllGraceScreens();
     ov.removeAttribute("hidden");
     ov.setAttribute("aria-hidden", "false");
@@ -8660,19 +8782,25 @@
       window.__risqueGraceCardplayStarts = arr = [];
     }
     var gs = getActiveGameStateSnapshot();
-    var cur = String(gs.currentPlayer || "");
-    var prevP = gracePreviousPlayerName(gs);
-    var j1 = cur ? graceFindLastSnapshotJsonForPlayer(cur) : null;
-    var j2 = prevP ? graceFindLastSnapshotJsonForPlayer(prevP) : null;
+    var undoSnap = graceFindUndoSnapshot(gs);
+    var prevSnap = graceFindPreviousPhaseSnapshot(gs);
+    var cycleSnap = graceFindPlayerCycleSnapshot(gs);
+    var j1 = prevSnap && prevSnap.entry && typeof prevSnap.entry.json === "string" ? prevSnap.entry.json : null;
+    var j0 = undoSnap && undoSnap.entry && typeof undoSnap.entry.json === "string" ? undoSnap.entry.json : null;
+    var j3 = cycleSnap && cycleSnap.entry && typeof cycleSnap.entry.json === "string" ? cycleSnap.entry.json : null;
+    __risqueGracePickJsonUndo = j0;
+    __risqueGracePickIndexUndo = undoSnap && Number.isInteger(undoSnap.index) ? undoSnap.index : -1;
     __risqueGracePickJsonCurrent = j1;
-    __risqueGracePickJsonPrevious = j2;
+    __risqueGracePickIndexCurrent = prevSnap && Number.isInteger(prevSnap.index) ? prevSnap.index : -1;
+    __risqueGracePickJsonCycle = j3;
+    __risqueGracePickIndexCycle = cycleSnap && Number.isInteger(cycleSnap.index) ? cycleSnap.index : -1;
     var pick = document.getElementById("risque-grace-host-screen-pick");
     if (pick) pick.hidden = false;
     graceUpdatePickScreenButtonsAndWarn();
-    if (!arr.length || (!j1 && !j2)) {
+    if (!arr.length || (!j0 && !j1 && !j3)) {
       logEvent("Grace: opened panel (no usable snapshots)");
     } else {
-      logEvent("Grace: opened rollback panel");
+      logEvent("Grace: opened rollback options panel");
     }
     requestAnimationFrame(function () {
       if (window.risqueRuntimeHud && window.risqueRuntimeHud.syncPosition) {
@@ -8681,8 +8809,9 @@
     });
   }
 
-  function graceShowConfirmScreen(detailText, jsonStr) {
+  function graceShowConfirmScreen(detailText, jsonStr, snapIndex) {
     __risqueGracePendingJson = jsonStr;
+    __risqueGracePendingIndex = Number.isInteger(snapIndex) ? snapIndex : -1;
     hideAllGraceScreens();
     var cf = document.getElementById("risque-grace-host-screen-confirm");
     var dt = document.getElementById("risque-grace-host-confirm-detail");
@@ -8698,7 +8827,7 @@
     graceUpdatePickScreenButtonsAndWarn();
   }
 
-  function graceExecuteRollback(jsonStr) {
+  function graceExecuteRollback(jsonStr, snapIndex) {
     if (!jsonStr) return;
     var gs = tryParse(jsonStr);
     var L = window.risquePhases && window.risquePhases.login;
@@ -8712,26 +8841,26 @@
       closeGraceHostRollbackFlow();
       return;
     }
-    var ph0 = String(gs.phase || "");
-    if (ph0 !== "cardplay" && ph0 !== "con-cardplay") {
-      setBoardCornerMsg("Grace: snapshot is not cardplay.");
-      closeGraceHostRollbackFlow();
-      return;
-    }
     var normalized = normalizeState(gs);
     var out = JSON.stringify(normalized);
     try {
+      window.__risqueGraceRollbackActive = true;
       localStorage.setItem(STORAGE_KEY, out);
     } catch (e1) {
       setBoardCornerMsg("Grace: could not save.");
       return;
+    } finally {
+      window.__risqueGraceRollbackActive = false;
     }
-    window.__risqueGraceCardplayStarts = [];
-    try {
-      localStorage.removeItem(GRACE_SNAPSHOTS_STORAGE_KEY);
-    } catch (eRm) {
-      /* ignore */
+    var arr = window.__risqueGraceCardplayStarts;
+    if (Array.isArray(arr)) {
+      var keepN = Number.isInteger(snapIndex) && snapIndex >= 0 ? snapIndex + 1 : arr.length;
+      if (keepN < arr.length) {
+        window.__risqueGraceCardplayStarts = arr.slice(0, Math.max(0, keepN));
+        persistGracePhaseSnapshotsToStorage(window.__risqueGraceCardplayStarts);
+      }
     }
+    window.__risqueGraceLastUndoJson = null;
     window.gameState = normalized;
     state = normalized;
     __risqueGracePendingJson = null;
@@ -8764,21 +8893,33 @@
         closeGraceHostRollbackFlow();
         return;
       }
+      if (id === "risque-grace-host-opt-undo") {
+        if (t.disabled) return;
+        if (!__risqueGracePickJsonUndo) return;
+        graceShowConfirmScreen(
+          "Undo the latest committed action only.",
+          __risqueGracePickJsonUndo,
+          __risqueGracePickIndexUndo
+        );
+        return;
+      }
       if (id === "risque-grace-host-opt-current") {
         if (t.disabled) return;
         if (!__risqueGracePickJsonCurrent) return;
         graceShowConfirmScreen(
-          "Roll back to the start of this player’s private cardplay turn. The board and hands match that moment.",
-          __risqueGracePickJsonCurrent
+          "Roll back to the start of the previous phase boundary only. The board and hands match that moment.",
+          __risqueGracePickJsonCurrent,
+          __risqueGracePickIndexCurrent
         );
         return;
       }
-      if (id === "risque-grace-host-opt-previous") {
+      if (id === "risque-grace-host-opt-cycle") {
         if (t.disabled) return;
-        if (!__risqueGracePickJsonPrevious) return;
+        if (!__risqueGracePickJsonCycle) return;
         graceShowConfirmScreen(
-          "Roll back to the start of the previous player’s private cardplay turn. The board and hands match that moment.",
-          __risqueGracePickJsonPrevious
+          "Restart this player's cycle from cardplay start.",
+          __risqueGracePickJsonCycle,
+          __risqueGracePickIndexCycle
         );
         return;
       }
@@ -8787,7 +8928,7 @@
         return;
       }
       if (id === "risque-grace-host-confirm-yes") {
-        graceExecuteRollback(__risqueGracePendingJson);
+        graceExecuteRollback(__risqueGracePendingJson, __risqueGracePendingIndex);
       }
     });
   }
@@ -8903,7 +9044,7 @@
       '<button type="button" id="risque-board-new-game" class="risque-board-op-btn risque-board-op-btn--collapsible-row">NEW GAME</button>' +
       '<button type="button" id="risque-board-load" class="risque-board-op-btn risque-board-op-btn--collapsible-row">LOAD GAME</button>' +
       '<button type="button" id="risque-board-save" class="risque-board-op-btn risque-board-op-btn--collapsible-row">SAVE GAME</button>' +
-      '<button type="button" id="risque-board-grace" class="risque-board-op-btn risque-board-op-btn--collapsible-row" title="Host: roll back to the start of this or the previous player’s cardplay turn (control panel)">GRACE</button>' +
+      '<button type="button" id="risque-board-grace" class="risque-board-op-btn risque-board-op-btn--collapsible-row" title="Host: undo last action, roll back one phase, or restart player cycle (control panel)">GRACE</button>' +
       '<button type="button" id="risque-board-open-public" class="risque-board-op-btn risque-board-op-btn--collapsible-row risque-board-open-public" title="Open the public / TV board in a new window">PUBLIC</button>' +
       '<button type="button" id="risque-board-hide-top-row" class="risque-board-op-btn risque-board-hide-top-row-btn" title="Hide or show the other controls on this row" aria-pressed="false">HIDE BUTTONS</button>' +
       "</div>" +

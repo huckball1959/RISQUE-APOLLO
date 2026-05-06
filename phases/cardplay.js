@@ -324,6 +324,12 @@
     function cardplayIsAerialDecisionReady(reqSeq) {
       if (reqSeq == null || reqSeq === "") return false;
       try {
+        var rawState = localStorage.getItem(CARDPLAY_PROCESSING_STATE_KEY);
+        if (!rawState) return false;
+        var st = JSON.parse(rawState);
+        if (!(st && Number(st.seq) === Number(reqSeq) && String(st.state || "") === "aerial_decision")) {
+          return false;
+        }
         var raw = localStorage.getItem(AERIAL_DECISION_READY_KEY);
         if (!raw) return false;
         var d = JSON.parse(raw);
@@ -1059,12 +1065,13 @@
       var dec = cardplayGetAerialDecisionForReqSeq(reqSeq);
       var aerialReady = cardplayIsAerialDecisionReady(reqSeq);
       var decisionButtonsEnabled = !!aerialReady;
+      var showAerialDecisionUi =
+        pendingAerial &&
+        needAck &&
+        !(dec && (dec.choice === "confirmed" || dec.choice === "countered")) &&
+        aerialReady;
       if (aerialWrap) {
-        if (
-          pendingAerial &&
-          needAck &&
-          !(dec && (dec.choice === "confirmed" || dec.choice === "countered"))
-        ) {
+        if (showAerialDecisionUi) {
           aerialWrap.removeAttribute("hidden");
         } else {
           aerialWrap.setAttribute("hidden", "");

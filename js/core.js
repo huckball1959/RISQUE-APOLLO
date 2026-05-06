@@ -1347,17 +1347,21 @@ window.gameUtils = {
             ? gameState.risquePublicCampaignWarpathLabels
             : null;
         /* Public TV must follow mirrored gameState only — never fall back to window globals (stale after host clears path). */
-        const warpathLabels = isPublicView
+        const warpathLabels = replayPlayback
           ? Array.isArray(gameState && gameState.risquePublicCampaignWarpathLabels)
             ? gameState.risquePublicCampaignWarpathLabels
             : []
-          : warpathLabelsFromState != null
-            ? warpathLabelsFromState
-            : Array.isArray(renderOpts.campaignWarpathLabels)
-              ? renderOpts.campaignWarpathLabels
-              : Array.isArray(window.__risqueCampaignWarpathLabels)
-                ? window.__risqueCampaignWarpathLabels
-                : [];
+          : isPublicView
+            ? Array.isArray(gameState && gameState.risquePublicCampaignWarpathLabels)
+              ? gameState.risquePublicCampaignWarpathLabels
+              : []
+            : warpathLabelsFromState != null
+              ? warpathLabelsFromState
+              : Array.isArray(renderOpts.campaignWarpathLabels)
+                ? renderOpts.campaignWarpathLabels
+                : Array.isArray(window.__risqueCampaignWarpathLabels)
+                  ? window.__risqueCampaignWarpathLabels
+                  : [];
         const onWarpath = warpathLabels.indexOf(label) !== -1;
         if (onWarpath) {
           surface.classList.add('campaign-warpath');

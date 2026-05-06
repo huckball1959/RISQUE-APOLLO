@@ -4162,7 +4162,7 @@ html.risque-view-host .runtime-hud-root--host-panel-lucky-focus .risque-phase-co
 }
 .risque-host-lucky-lead {
   margin: 0 0 10px 0;
-  font: 600 12px/1.4 Arial, Helvetica, sans-serif;
+  font: 700 16px/1.45 Arial, Helvetica, sans-serif;
   color: #86efac;
   text-align: left;
 }
@@ -4180,12 +4180,12 @@ html.risque-view-host .runtime-hud-root--host-panel-lucky-focus .risque-phase-co
 }
 .risque-host-lucky-postgame-title {
   margin: 0 0 6px 0;
-  font: 800 13px/1.35 Arial, Helvetica, sans-serif;
+  font: 800 18px/1.35 Arial, Helvetica, sans-serif;
   color: #ecfdf5;
 }
 .risque-host-lucky-postgame-line {
   margin: 0;
-  font: 600 12px/1.45 Arial, Helvetica, sans-serif;
+  font: 700 16px/1.45 Arial, Helvetica, sans-serif;
   color: #86efac;
 }
 .risque-host-lucky-postgame-line + .risque-host-lucky-postgame-line {
@@ -4197,7 +4197,7 @@ html.risque-view-host .runtime-hud-root--host-panel-lucky-focus .risque-phase-co
 }
 .runtime-hud-root--host-panel-lucky-focus #hud-main-panel .hud-stats-table th,
 .runtime-hud-root--host-panel-lucky-focus #hud-main-panel .hud-stats-table td {
-  font-size: clamp(11px, 1.65vw, 17px) !important;
+  font-size: clamp(14px, 2vw, 22px) !important;
   line-height: 1.2 !important;
   padding: 0.3em 0.4em !important;
 }
@@ -4628,6 +4628,16 @@ body.risque-view-host:not([data-risque-phase="attack"])
   border-color: #334155 !important;
   cursor: not-allowed !important;
   opacity: 0.85;
+}
+
+/* Keep every attack control visually consistent when disabled (including REINFORCE, CAMPAIGN, CLEAR). */
+.attack-ctl-btn:disabled {
+  background: #475569 !important;
+  color: #94a3b8 !important;
+  border-color: #334155 !important;
+  cursor: not-allowed !important;
+  opacity: 0.85;
+  box-shadow: none !important;
 }
 
 @keyframes attack-campaign-choice-pulse {

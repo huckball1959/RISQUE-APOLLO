@@ -1164,6 +1164,10 @@ function syncAttackPhaseActionLocks() {
   const aerialEl = document.getElementById('aerial-attack');
   const aerialEl2 = document.getElementById('aerial-attack-2');
   const reinforceEl = document.getElementById('reinforce');
+  const guidedPromptActive =
+    !!document.querySelector('.ucp-slot-ctl--pulse-attention') ||
+    !!document.querySelector('.risque-confirm-slot-flash') ||
+    !!document.querySelector('.risque-confirm-slot-strip-flash');
   if (rollEl) rollEl.disabled = !!pending || !hasPair;
   if (blitzEl) blitzEl.disabled = !!pending || !hasPair;
   if (campaignEl) campaignEl.disabled = !!pending;
@@ -1181,7 +1185,7 @@ function syncAttackPhaseActionLocks() {
     !aerialUnlockedForUi || isSelectingAerialSource || isSelectingAerialTarget || isAwaitingAerialConfirm;
   if (aerialEl) aerialEl.disabled = !!pending || aerialBaseGrey || uses < 1;
   if (aerialEl2) aerialEl2.disabled = !!pending || aerialBaseGrey || uses < 2;
-  if (reinforceEl) reinforceEl.disabled = !!pending;
+  if (reinforceEl) reinforceEl.disabled = !!pending || guidedPromptActive;
 }
 
 /** Re-apply after {@link setAttackChromeInteractive}; HUD enablement must not override per-control locks. */

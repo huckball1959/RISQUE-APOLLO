@@ -171,10 +171,11 @@
       "</div>" +
       '<div id="risque-grace-host-screen-pick" class="risque-grace-host-screen" hidden>' +
       '<p class="risque-grace-host-title">Grace rollback</p>' +
-      '<p class="risque-grace-host-desc">Return to the start of <strong>private cardplay</strong> for the current or previous player.</p>' +
+      '<p class="risque-grace-host-desc">Choose rollback mode.</p>' +
       '<p id="risque-grace-host-pick-warn" class="risque-grace-host-pick-warn" hidden></p>' +
-      '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-current" disabled>This player\'s turn (cardplay start)</button>' +
-      '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-previous" disabled>Previous player\'s turn (cardplay start)</button>' +
+      '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-undo" disabled>1) Undo (last action)</button>' +
+      '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-current" disabled>2) Roll back phase</button>' +
+      '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-cycle" disabled>3) Complete player cycle</button>' +
       '<button type="button" class="risque-grace-host-btn" id="risque-grace-host-pick-cancel">Cancel</button>' +
       "</div>" +
       '<div id="risque-grace-host-screen-confirm" class="risque-grace-host-screen" hidden>' +
