@@ -51,8 +51,8 @@
 
       if (typeof window.risqueRuntimeHud.setControlVoiceText === "function") {
         window.risqueRuntimeHud.setControlVoiceText(
-          String(wname).toUpperCase() + " WINS — POSTGAME REVIEW",
-          "STATS, LUCKY, and CARDS PLAYED stay available here. Full match replay (deal through end) opens in Wayback — auto-starts once after the win screen when your browser allows pop-ups.",
+          String(wname).toUpperCase() + " WINS — POSTGAME",
+          "Wayback loads in the control panel next — playback starts automatically; the Public / TV map follows the same animation. Use ARCHIVE below if you want a replay JSON on disk (save folder, often C:\\risque\\save). Exit replay restores this panel.",
           {
             force: true
           }
@@ -67,14 +67,11 @@
           '<div class="postgame-compact-root">' +
           '<p class="postgame-compact-title">POSTGAME</p>' +
           '<p class="postgame-compact-copy">' +
-          "Map and statistics are frozen here. Wayback plays the full animated replay (including the deal). Exit clears this session." +
+          "Replay runs inside the control panel (no extra window). ARCHIVE writes a replay JSON to your connected save folder — often C:\\risque\\save or a subfolder like archive\\. EXIT TO MENU clears the session." +
           "</p>" +
           '<div class="postgame-compact-actions">' +
           (!window.risqueDisplayIsPublic
-            ? '<button type="button" class="postgame-btn postgame-btn--secondary" id="risque-postgame-watch-replay" title="Opens Wayback with this match’s tape and starts playback (same as board REPLAY, plus auto-play)">' +
-              "WATCH FULL REPLAY" +
-              "</button>" +
-              '<button type="button" class="postgame-btn postgame-btn--secondary" id="risque-postgame-archive-replay" title="Writes one full-session replay JSON into your save folder (Wayback-ready)">' +
+            ? '<button type="button" class="postgame-btn postgame-btn--secondary" id="risque-postgame-archive-replay" title="Writes one full-session replay JSON into your save folder (Wayback-ready)">' +
               "ARCHIVE GAME REPLAY" +
               "</button>"
             : "") +
@@ -96,15 +93,6 @@
         } catch (eMove) {
           /* ignore */
         }
-        var watchBtn = document.getElementById("risque-postgame-watch-replay");
-        if (watchBtn) {
-          watchBtn.addEventListener("click", function () {
-            if (window.risqueDisplayIsPublic) return;
-            if (typeof window.risqueOpenReplayMachineFromHost === "function") {
-              window.risqueOpenReplayMachineFromHost({ replayAutoplay: true });
-            }
-          });
-        }
         var archBtn = document.getElementById("risque-postgame-archive-replay");
         if (archBtn) {
           archBtn.addEventListener("click", function () {
@@ -121,7 +109,7 @@
                 msg =
                   "Saved " +
                   r.path +
-                  " in your save folder. Open it in Wayback (replay-machine). Default launcher uses a flat folder (e.g. C:\\risque\\save).";
+                  " in your save folder. Board corner REPLAY loads it inline or from Save root / Archive in Wayback.";
               } else if (r && r.ok && r.downloaded) {
                 msg =
                   "Replay JSON downloaded (no connected SAVE folder). Connect SAVE once in round autosave to write straight into your save folder next time.";
@@ -169,19 +157,22 @@
             var autoFlagKey = sk ? "risquePgReplayAuto:" + sk : "risquePgReplayAuto:anon";
             if (!sessionStorage.getItem(autoFlagKey)) {
               sessionStorage.setItem(autoFlagKey, "1");
-              window.setTimeout(function () {
-                try {
-                  if (
-                    window.gameState &&
-                    String(window.gameState.phase || "") === "postgame" &&
-                    typeof window.risqueOpenReplayMachineFromHost === "function"
-                  ) {
-                    window.risqueOpenReplayMachineFromHost({ replayAutoplay: true });
+              /* After paint: instant replay (no extra second-plus delay). Prep inside open is async. */
+              window.requestAnimationFrame(function () {
+                window.requestAnimationFrame(function () {
+                  try {
+                    if (
+                      window.gameState &&
+                      String(window.gameState.phase || "") === "postgame" &&
+                      typeof window.risqueOpenReplayMachineFromHost === "function"
+                    ) {
+                      window.risqueOpenReplayMachineFromHost({ replayAutoplay: true });
+                    }
+                  } catch (eAutoReplay) {
+                    /* ignore */
                   }
-                } catch (eAutoReplay) {
-                  /* ignore */
-                }
-              }, 1800);
+                });
+              });
             }
           } catch (eSsAuto) {
             /* ignore */

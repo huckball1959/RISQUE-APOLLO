@@ -1,5 +1,6 @@
 /**
- * Standalone battle tape playback (risque-replay-v1 JSON). Uses core.js map rendering only.
+ * Battle tape playback (risque-replay-v1 JSON). Uses core.js map rendering.
+ * Embedded in game.html host panel (inline Wayback); replay-machine.html remains as optional standalone page.
  */
 (function () {
   "use strict";
@@ -57,14 +58,20 @@
   var AUTO_START_PLAYBACK_AFTER_LOAD = false;
   var AUTO_START_DELAY_MS = 320;
 
-  /** When replay-machine opens with ?replayAutoplay=1 (e.g. postgame), begin playback once after pack load. */
-  function scheduleReplayAutoplayFromUrlOnce() {
+  /**
+   * After prepareLoadedPack: autoplay if ?replayAutoplay=1 or inline mount set __risqueReplayInlineAutoplayPending.
+   */
+  function scheduleReplayAutoplayIfDesired() {
     if (window.__risqueReplayAutoplayScheduled) return;
     var ap = false;
     try {
       ap = new URLSearchParams(window.location.search).get("replayAutoplay") === "1";
     } catch (eAu0) {
       ap = false;
+    }
+    if (!ap && window.__risqueReplayInlineAutoplayPending) {
+      ap = true;
+      window.__risqueReplayInlineAutoplayPending = false;
     }
     if (!ap) return;
     window.__risqueReplayAutoplayScheduled = true;
@@ -1789,7 +1796,7 @@
       updateTransportPlayPauseUi(null);
       updateRoundsLoadedUi(sourcePacks || [pack], pack);
       clearReplayChipHighlight();
-      scheduleReplayAutoplayFromUrlOnce();
+      scheduleReplayAutoplayIfDesired();
     } catch (e) {
       setStatus("Replay error: " + (e && e.message ? e.message : String(e)));
       try {
@@ -1906,11 +1913,14 @@
 
   /** Center of panel at logical x=1500 from canvas left (1920×1080 space); width capped at 800px. */
   function risqueReplayPositionHud() {
-    if (!window.RISQUE_REPLAY_MACHINE) return;
+    var hud = document.getElementById("runtime-hud-root");
+    if (!hud || !hud.classList.contains("runtime-hud-root--replay-machine")) return;
+    var allow =
+      !!window.RISQUE_REPLAY_MACHINE || document.body.classList.contains("replay-machine-page");
+    if (!allow) return;
     var stage = document.querySelector(".replay-stage-host");
     var canvas = document.getElementById("canvas");
-    var hud = document.getElementById("runtime-hud-root");
-    if (!stage || !canvas || !hud || !hud.classList.contains("runtime-hud-root--replay-machine")) return;
+    if (!stage || !canvas) return;
     var cr = canvas.getBoundingClientRect();
     if (cr.width < 4) return;
     var scale = cr.width / 1920;
@@ -1921,6 +1931,28 @@
   }
 
   window.risqueReplayPositionHud = risqueReplayPositionHud;
+
+  function risqueReplayWireHudResizeOnce() {
+    if (window.__risqueReplayHudResizeListener) {
+      risqueReplayPositionHud();
+      return;
+    }
+    window.__risqueReplayHudResizeListener = function () {
+      risqueReplayPositionHud();
+    };
+    window.addEventListener("resize", window.__risqueReplayHudResizeListener);
+    risqueReplayPositionHud();
+    requestAnimationFrame(function () {
+      risqueReplayPositionHud();
+      requestAnimationFrame(risqueReplayPositionHud);
+    });
+  }
+
+  function risqueReplayUnwireHudResize() {
+    if (!window.__risqueReplayHudResizeListener) return;
+    window.removeEventListener("resize", window.__risqueReplayHudResizeListener);
+    window.__risqueReplayHudResizeListener = null;
+  }
   window.risqueReplayStripBackwardStampedRoundBoards = stripBackwardStampedRoundBoardEvents;
 
   /**
@@ -2074,7 +2106,7 @@
     meta = filterReplayMetaGranularWaybackFirst(meta);
     if (!meta.length) {
       setStatus(
-        "No replay tapes in this folder — flat saves use DD.json and rNpM.json at the save root (see REPLAY/ only for old layouts)."
+        "No replay tapes in this folder — Wayback needs DD.json and rNpM.json (or *-replay.json). Files like r2p3game.json are resume checkpoints only, not animated tapes."
       );
       updateReplayTapeCountLine(null);
       return;
@@ -2095,6 +2127,23 @@
     try {
       var h = await readableFn(dirHandle);
       if (!h) return false;
+      try {
+        window.__risqueReplayConnectedSaveRootHandle = dirHandle;
+      } catch (eRoot) {
+        /* ignore */
+      }
+      var wh = dirHandle;
+      if (typeof window.risqueSaveFolderEnsureWritable === "function") {
+        try {
+          var wResolved = await window.risqueSaveFolderEnsureWritable(dirHandle);
+          if (wResolved) wh = wResolved;
+        } catch (eW) {
+          /* ignore */
+        }
+      }
+      if (typeof window.risqueHostSaveFolderAdoptDirectoryHandle === "function") {
+        window.risqueHostSaveFolderAdoptDirectoryHandle(wh);
+      }
       await risqueReplayLoadFromDirectoryHandle(h, { skipStatus: true });
       setStatus("");
       return true;
@@ -2215,6 +2264,571 @@
     }
   }
 
+  /**
+   * Inner HTML of #risque-main-panel-body — must match replay-machine.html (standalone Wayback).
+   */
+  function risqueReplayMachinePanelBodyInnerHtml() {
+    return (
+      '<div class="risque-replay-centered-stack">' +
+      '<div class="risque-replay-machine-brand">' +
+      '<p class="risque-replay-machine-brand-the">THE</p>' +
+      '<p class="risque-replay-machine-brand-main">WAYBACK MACHINE</p>' +
+      "</div>" +
+      '<div class="risque-replay-file-row risque-replay-file-row--primary">' +
+      '<button type="button" id="risque-replay-folder-connect" class="risque-replay-file-pick-btn risque-replay-file-pick-btn--primary" title="Pick your flat save folder once (default C:\\risque\\save with scripts\\RISQUE.bat — same as round autosave)">' +
+      "Connect saved folder" +
+      "</button>" +
+      '<button type="button" id="risque-replay-folder-refresh" class="risque-replay-file-pick-btn" title="Reload all *replay*.json from the connected folder">' +
+      "Refresh" +
+      "</button>" +
+      "</div>" +
+      '<div class="risque-replay-scope-row">' +
+      '<button type="button" id="risque-replay-scope-root" class="risque-replay-file-pick-btn" title="Load tapes from the connected save root">' +
+      "Save root" +
+      "</button>" +
+      '<button type="button" id="risque-replay-scope-archive" class="risque-replay-file-pick-btn" title="Load from archive subfolder (save\\archive)">' +
+      "Archive" +
+      "</button>" +
+      "</div>" +
+      '<p id="risque-replay-launcher-path-hint" class="risque-replay-launcher-hint" aria-live="polite"></p>' +
+      '<div class="risque-replay-file-row risque-replay-file-row--manual">' +
+      '<button type="button" id="risque-replay-file-pick" class="risque-replay-file-pick-btn">' +
+      "Choose replay files" +
+      "</button>" +
+      '<input type="file" id="risque-replay-file" class="risque-replay-file-input-native" accept=".json,application/json" multiple tabindex="-1" aria-label="Choose one or more RQRP replay JSON files" />' +
+      "</div>" +
+      '<div class="risque-replay-rounds-section" id="risque-replay-rounds-section">' +
+      '<div id="risque-replay-tape-count" class="risque-replay-tape-count-line" aria-live="polite"></div>' +
+      '<div id="risque-replay-file-list" class="risque-replay-round-chips" role="group" aria-label="Replay segments"></div>' +
+      "</div>" +
+      "</div>" +
+      '<p id="risque-replay-status" class="risque-replay-status-line"></p>' +
+      '<div class="risque-replay-transport-deck">' +
+      '<div class="risque-replay-transport-row">' +
+      '<button type="button" id="risque-replay-transport-play" class="risque-replay-transport-btn" disabled>PLAY</button>' +
+      '<button type="button" id="risque-replay-transport-pause" class="risque-replay-transport-btn" disabled>PAUSE</button>' +
+      '<button type="button" id="risque-replay-transport-stop" class="risque-replay-transport-btn" disabled>STOP</button>' +
+      "</div>" +
+      "</div>" +
+      '<div class="risque-replay-tape-row risque-replay-tape-row--speed">' +
+      '<label class="risque-replay-speed-label" for="risque-replay-speed">Playback speed</label>' +
+      '<input type="range" id="risque-replay-speed" class="risque-replay-speed-slider" min="25" max="200" value="100" />' +
+      "</div>" +
+      '<p id="risque-replay-ended" class="risque-replay-ended-line" aria-live="polite"></p>' +
+      '<div class="risque-replay-exit-row">' +
+      '<button type="button" id="risque-replay-exit-overlay" class="risque-replay-exit-btn" title="Close Wayback and return to the game">' +
+      "Exit replay" +
+      "</button>" +
+      "</div>"
+    );
+  }
+
+  /** Full #runtime-hud-root subtree as in replay-machine.html (map sibling overlay). */
+  function risqueReplayMachineFullHudHtml() {
+    return (
+      '<div id="runtime-hud-root" class="runtime-hud-root runtime-hud-root--replay-machine" aria-label="Wayback Machine controls">' +
+      '<div id="hud-main-panel" class="attack-control-panel unified-attack-panel">' +
+      '<div id="risque-main-panel-body" class="risque-main-panel-body risque-replay-machine-fill">' +
+      risqueReplayMachinePanelBodyInnerHtml() +
+      "</div></div></div>"
+    );
+  }
+
+  function risqueReplayUpdateLauncherPathHint() {
+    var el = document.getElementById("risque-replay-launcher-path-hint");
+    if (!el) return;
+    el.textContent =
+      "Launcher default save folder is usually C:\\risque\\save — Connect once so mid-game saves match disk.";
+    if (typeof window.risqueFetchLauncherPathsJson !== "function") return;
+    window
+      .risqueFetchLauncherPathsJson()
+      .then(function (j) {
+        if (!el.isConnected) return;
+        if (j && j.saveRoot) {
+          try {
+            window.risqueLauncherSaveRootPath = String(j.saveRoot);
+          } catch (eLs) {
+            /* ignore */
+          }
+          el.textContent =
+            "Launcher saveRoot: " +
+            String(j.saveRoot) +
+            " — pick this folder (or a parent) when you Connect.";
+        }
+      })
+      .catch(function () {});
+  }
+
+  function risqueReplayScopeLoadRoot() {
+    var dh = window.__risqueReplayConnectedSaveRootHandle;
+    if (!dh || typeof dh.entries !== "function") {
+      setStatus("Connect save folder first.");
+      return;
+    }
+    risqueReplayLoadFromDirectoryHandle(dh, {}).catch(function () {});
+  }
+
+  function risqueReplayScopeLoadArchive() {
+    var dh = window.__risqueReplayConnectedSaveRootHandle;
+    if (!dh || typeof dh.getDirectoryHandle !== "function") {
+      setStatus("Connect save folder first.");
+      return;
+    }
+    dh.getDirectoryHandle("archive", { create: false })
+      .then(function (arch) {
+        return risqueReplayLoadFromDirectoryHandle(arch, {});
+      })
+      .then(function () {
+        setStatus("Loaded tapes from archive/");
+      })
+      .catch(function () {
+        setStatus("No archive folder — create save\\archive or use Save root.");
+      });
+  }
+
+  function replayPackLooksRichForBootstrap(pk) {
+    if (!pk || !pk.tape || !Array.isArray(pk.tape.events) || !pk.tape.events.length) return false;
+    var evs = pk.tape.events;
+    var hi;
+    for (hi = 0; hi < evs.length; hi++) {
+      var e = evs[hi];
+      if (e && e.type === "board" && e.segment === "deal") return true;
+    }
+    return evs.length > 120;
+  }
+
+  function applyLsBootstrapPackOrFalse() {
+    var bsRaw = null;
+    try {
+      if (window.__risqueWaybackBootstrapPackMemory) {
+        bsRaw = String(window.__risqueWaybackBootstrapPackMemory);
+        try {
+          delete window.__risqueWaybackBootstrapPackMemory;
+        } catch (eDelMem) {
+          window.__risqueWaybackBootstrapPackMemory = null;
+        }
+      }
+    } catch (eMemRead) {
+      /* ignore */
+    }
+    try {
+      if (!bsRaw) bsRaw = localStorage.getItem("risqueWaybackBootstrapPack");
+    } catch (eLs0) {
+      /* ignore */
+    }
+    if (!bsRaw && window.opener) {
+      try {
+        bsRaw = window.opener.localStorage.getItem("risqueWaybackBootstrapPack");
+      } catch (eOp) {
+        /* ignore */
+      }
+    }
+    if (!bsRaw) return false;
+    try {
+      localStorage.removeItem("risqueWaybackBootstrapPack");
+    } catch (eRm0) {
+      /* ignore */
+    }
+    var bsParsed;
+    try {
+      bsParsed = JSON.parse(bsRaw);
+    } catch (eParseBs) {
+      return false;
+    }
+    var bsPack = normalizeImportedReplay(bsParsed);
+    if (
+      !bsPack &&
+      bsParsed &&
+      bsParsed.format === "risque-replay-v1" &&
+      bsParsed.tape &&
+      tapeVersionOk(bsParsed.tape.v)
+    ) {
+      bsPack = bsParsed;
+    }
+    if (!bsPack) return false;
+    enrichPlayerColorsFromTape(bsPack);
+    updateReplayTapeCountLine(null);
+    prepareLoadedPack(bsPack, [bsPack]);
+    return true;
+  }
+
+  function risqueReplayMachineBootstrapTapeFromGame(openedFromGameAuto) {
+    var waybackBootstrappedFromGame = false;
+    function tryApplyLsBootstrap() {
+      if (!applyLsBootstrapPackOrFalse()) return false;
+      waybackBootstrappedFromGame = true;
+      return true;
+    }
+    if (openedFromGameAuto) {
+      try {
+        /* Postgame auto-open must preserve the live in-memory tape.
+         * Auto refresh can overwrite it with sparse folder tapes (e.g., DD.json only). */
+        tryApplyLsBootstrap();
+      } catch (eBsFirst) {
+        try {
+          localStorage.removeItem("risqueWaybackBootstrapPack");
+        } catch (eRmFirst) {
+          /* ignore */
+        }
+        setStatus(
+          "Replay from game failed to parse — Connect saved folder or choose replay files."
+        );
+      }
+
+      if (!waybackBootstrappedFromGame) {
+        var folderChain =
+          typeof window.risqueSaveFolderIdbGet === "function"
+            ? window.risqueSaveFolderIdbGet().then(function (h) {
+                if (!h) return null;
+                try {
+                  window.__risqueReplayConnectedSaveRootHandle = h;
+                } catch (eCr) {
+                  /* ignore */
+                }
+                var rf = window.risqueSaveFolderEnsureReadable;
+                var wf = window.risqueSaveFolderEnsureWritable;
+                var readP =
+                  typeof rf === "function"
+                    ? rf(h).then(function (rh) {
+                        return rh || h;
+                      })
+                    : Promise.resolve(h);
+                var writeP =
+                  typeof wf === "function"
+                    ? wf(h).then(function (wh) {
+                        return wh || h;
+                      })
+                    : Promise.resolve(h);
+                return Promise.all([readP, writeP]).then(function (pair) {
+                  var dhRead = pair[0];
+                  var wh = pair[1];
+                  if (typeof window.risqueHostSaveFolderAdoptDirectoryHandle === "function") {
+                    window.risqueHostSaveFolderAdoptDirectoryHandle(wh);
+                  }
+                  return dhRead;
+                });
+              })
+            : Promise.resolve(null);
+
+        folderChain
+          .then(function (dh) {
+            if (!dh || typeof dh.entries !== "function") return Promise.resolve(false);
+            return risqueReplayLoadFromDirectoryHandle(dh, { skipStatus: true }).then(function () {
+              return !!window.__risqueReplayLoadedPack;
+            });
+          })
+          .then(function (folderOk) {
+            var pk = window.__risqueReplayLoadedPack;
+            var foldRich = replayPackLooksRichForBootstrap(pk);
+            if (folderOk && foldRich) {
+              waybackBootstrappedFromGame = true;
+              return;
+            }
+            try {
+              tryApplyLsBootstrap();
+            } catch (eBs) {
+              try {
+                localStorage.removeItem("risqueWaybackBootstrapPack");
+              } catch (eRm) {
+                /* ignore */
+              }
+              setStatus(
+                "Replay from game failed to parse — Connect saved folder or choose replay files."
+              );
+            }
+          })
+          .catch(function () {
+            try {
+              tryApplyLsBootstrap();
+            } catch (eBs2) {
+              try {
+                localStorage.removeItem("risqueWaybackBootstrapPack");
+              } catch (eRm2) {
+                /* ignore */
+              }
+            }
+          })
+          .then(function () {
+            if (!waybackBootstrappedFromGame) {
+              risqueReplayBootStoredFolderFromIdb();
+              risqueReplayScheduleLaunchFolderRefresh();
+            }
+          });
+      }
+    } else {
+      risqueReplayBootStoredFolderFromIdb();
+      risqueReplayScheduleLaunchFolderRefresh();
+    }
+  }
+
+  function risqueReplayMachineUnmountInline() {
+    if (!window.__risqueInlineWaybackActive) return;
+    window.__risqueReplayAutoStartTok = (window.__risqueReplayAutoStartTok || 0) + 1;
+    stopPlayback({ skipStatusMsg: true, silentTransport: true });
+    delete window.__risqueReplayLoadedPack;
+    window.__risqueReplayEnded = false;
+    setReplayEndedLine(false);
+    removeReplaySplash();
+    removeReplayRoundHud();
+    removeReplayStartOverlay();
+    var barEarly = document.getElementById("risque-replay-bar");
+    if (barEarly && barEarly.parentNode) barEarly.parentNode.removeChild(barEarly);
+    var waybackRoot = document.getElementById("runtime-hud-root");
+    var stage = document.querySelector(".runtime-stage-host");
+    var overlay = document.getElementById("ui-overlay");
+    var restoreRoot = window.__risqueReplayInlineDetachedHudRoot;
+    if (waybackRoot && waybackRoot.parentNode) {
+      waybackRoot.parentNode.removeChild(waybackRoot);
+    }
+    if (restoreRoot && overlay) {
+      overlay.appendChild(restoreRoot);
+    }
+    delete window.__risqueReplayInlineDetachedHudRoot;
+    document.body.classList.remove("replay-machine-page");
+    if (stage) {
+      stage.classList.remove("replay-stage-host");
+    }
+    risqueReplayUnwireHudResize();
+    var hudEl = document.getElementById("runtime-hud-root");
+    if (hudEl) {
+      hudEl.style.left = "";
+    }
+    var bk = window.__risqueReplayInlineBackupGameState;
+    delete window.__risqueReplayInlineBackupGameState;
+    if (bk && typeof bk === "object") {
+      window.gameState = bk;
+      try {
+        localStorage.setItem("gameState", JSON.stringify(bk));
+      } catch (eLs) {
+        /* ignore */
+      }
+    }
+    if (typeof window.gameUtils !== "undefined" && window.gameUtils && window.gameState) {
+      try {
+        window.gameUtils.resizeCanvas();
+        window.gameUtils.renderTerritories(null, window.gameState);
+        window.gameUtils.renderStats(window.gameState);
+      } catch (eR) {
+        /* ignore */
+      }
+    }
+    if (typeof window.risqueMirrorPushGameState === "function") {
+      try {
+        window.risqueMirrorPushGameState();
+      } catch (eM) {
+        /* ignore */
+      }
+    }
+    if (
+      typeof window.risqueRuntimeHud !== "undefined" &&
+      window.risqueRuntimeHud &&
+      typeof window.risqueRuntimeHud.syncPosition === "function"
+    ) {
+      try {
+        window.risqueRuntimeHud.syncPosition();
+      } catch (eS) {
+        /* ignore */
+      }
+    }
+    window.__risqueInlineWaybackActive = false;
+    window.__risqueReplayAutoplayScheduled = false;
+    window.__risqueReplayInlineAutoplayPending = false;
+    if (typeof window.risqueReplayDisableGranularDiskWrites === "function") {
+      try {
+        window.risqueReplayDisableGranularDiskWrites("wayback-exit", window.gameState);
+      } catch (eGranOff) {
+        /* ignore */
+      }
+    }
+  }
+
+  window.risqueReplayMachineUnmountInline = risqueReplayMachineUnmountInline;
+
+  window.risqueReplayMachineMountInline = function (opts) {
+    opts = opts || {};
+    if (window.__risqueInlineWaybackActive) return;
+    if (!window.gameUtils) return;
+    var stage = document.querySelector(".runtime-stage-host");
+    var overlay = document.getElementById("ui-overlay");
+    var oldRoot = document.getElementById("runtime-hud-root");
+    if (!stage || !overlay || !oldRoot) return;
+
+    window.__risqueInlineWaybackActive = true;
+    window.__risqueReplayAutoplayScheduled = false;
+    window.__risqueReplayInlineAutoplayPending = !!opts.replayAutoplay;
+    try {
+      window.__risqueReplayInlineBackupGameState = window.gameState
+        ? JSON.parse(JSON.stringify(window.gameState))
+        : null;
+    } catch (eBk) {
+      window.__risqueReplayInlineBackupGameState = null;
+    }
+
+    window.__risqueReplayInlineDetachedHudRoot = oldRoot;
+    oldRoot.remove();
+
+    var wrap = document.createElement("div");
+    wrap.innerHTML = risqueReplayMachineFullHudHtml();
+    var newRoot = wrap.firstElementChild;
+    if (!newRoot) {
+      overlay.appendChild(oldRoot);
+      delete window.__risqueReplayInlineDetachedHudRoot;
+      window.__risqueInlineWaybackActive = false;
+      return;
+    }
+    stage.appendChild(newRoot);
+
+    document.body.classList.add("replay-machine-page");
+    stage.classList.add("replay-stage-host");
+
+    risqueReplayUpdateLauncherPathHint();
+    risqueReplayMachineEnsureHandlersWired();
+    risqueReplayWireHudResizeOnce();
+    clearReplayChipHighlight();
+    updateReplayTapeCountLine(null);
+    updateRoundsLoadedUi(null, null);
+    risqueReplayMachineBootstrapTapeFromGame(true);
+  };
+
+  function risqueReplayMachineEnsureHandlersWired() {
+    wireReplayTransportControls();
+    var exitReplayBtn = document.getElementById("risque-replay-exit-overlay");
+    if (exitReplayBtn) {
+      exitReplayBtn.onclick = function () {
+        if (window.__risqueInlineWaybackActive) {
+          risqueReplayMachineUnmountInline();
+          return;
+        }
+        try {
+          window.close();
+        } catch (e) {}
+        window.setTimeout(function () {
+          try {
+            if (window.closed) return;
+            setStatus("Close this replay window manually if Exit did nothing (browser security).");
+          } catch (e2) {}
+        }, 200);
+      };
+    }
+    var pickBtn = document.getElementById("risque-replay-file-pick");
+    var roundsSec = document.getElementById("risque-replay-rounds-section");
+    if (pickBtn) {
+      pickBtn.onclick = function () {
+        var el = document.getElementById("risque-replay-file");
+        if (el) el.click();
+      };
+    }
+    if (roundsSec) {
+      roundsSec.onclick = function (e) {
+        var t = e.target;
+        if (!t || !t.closest) return;
+        var chip = t.closest(".risque-replay-round-chip");
+        if (!chip || !roundsSec.contains(chip)) return;
+        var si = chip.getAttribute("data-seek-index");
+        if (si != null && String(si).length) {
+          var ix = parseInt(si, 10);
+          if (isFinite(ix) && ix >= 0) {
+            e.preventDefault();
+            seekPlaybackToIndex(ix);
+            return;
+          }
+        }
+        var r = parseInt(chip.getAttribute("data-round"), 10);
+        if (!isFinite(r) || r < 1) return;
+        e.preventDefault();
+        seekPlaybackToRound(r);
+      };
+    }
+    window.risqueReplayPickFile = function () {
+      var el = document.getElementById("risque-replay-file");
+      if (el) el.click();
+    };
+    if (!window.__risqueReplayDocKeysWired) {
+      window.__risqueReplayDocKeysWired = true;
+      document.addEventListener("keydown", function (e) {
+        if (e.altKey && String(e.key).toLowerCase() === "o") {
+          e.preventDefault();
+          window.risqueReplayPickFile();
+        }
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key !== "Escape") return;
+        if (!window.__risqueReplayLoadedPack) return;
+        e.preventDefault();
+        replayStopToCleanStandby();
+      });
+    }
+    if (window.RISQUE_REPLAY_MACHINE) {
+      risqueReplayWireHudResizeOnce();
+    }
+    var inp = document.getElementById("risque-replay-file");
+    if (inp) {
+      inp.onchange = function () {
+        var filesSnap =
+          inp.files && inp.files.length ? Array.prototype.slice.call(inp.files, 0) : [];
+        inp.value = "";
+        if (filesSnap.length) {
+          onFilesSelected(filesSnap);
+        }
+      };
+    }
+
+    var folderBtn = document.getElementById("risque-replay-folder-connect");
+    var refreshBtn = document.getElementById("risque-replay-folder-refresh");
+    if (folderBtn && typeof window.showDirectoryPicker === "function") {
+      folderBtn.onclick = function () {
+        window
+          .showDirectoryPicker({ id: "risque-save-root", mode: "readwrite" })
+          .then(function (dir) {
+            try {
+              window.__risqueReplayConnectedSaveRootHandle = dir;
+            } catch (eD) {
+              /* ignore */
+            }
+            if (typeof window.risqueHostSaveFolderAdoptDirectoryHandle === "function") {
+              window.risqueHostSaveFolderAdoptDirectoryHandle(dir);
+            }
+            var put =
+              typeof window.risqueSaveFolderIdbPut === "function"
+                ? window.risqueSaveFolderIdbPut(dir)
+                : Promise.resolve();
+            return put.then(function () {
+              return risqueReplayLoadFromDirectoryHandle(dir);
+            });
+          })
+          .catch(function (e) {
+            if (e && e.name !== "AbortError") {
+              setStatus("Folder: " + (e && e.message ? e.message : String(e)));
+            }
+          });
+      };
+    } else if (folderBtn) {
+      folderBtn.disabled = true;
+      folderBtn.title = "Folder picker needs Chromium (Chrome/Edge) on https or localhost.";
+    }
+
+    if (refreshBtn && typeof window.risqueSaveFolderIdbGet === "function") {
+      refreshBtn.onclick = function () {
+        risqueReplayRefreshFromStoredFolder();
+      };
+    } else if (refreshBtn) {
+      refreshBtn.disabled = true;
+    }
+
+    var scopeRoot = document.getElementById("risque-replay-scope-root");
+    var scopeArch = document.getElementById("risque-replay-scope-archive");
+    if (scopeRoot) {
+      scopeRoot.onclick = function () {
+        risqueReplayScopeLoadRoot();
+      };
+    }
+    if (scopeArch) {
+      scopeArch.onclick = function () {
+        risqueReplayScopeLoadArchive();
+      };
+    }
+  }
+
   function risqueReplayApplyExternalMonitorWindow() {
     try {
       var q = new URLSearchParams(window.location.search);
@@ -2238,85 +2852,10 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    if (!window.RISQUE_REPLAY_MACHINE) return;
     risqueReplayApplyExternalMonitorWindow();
-    wireReplayTransportControls();
-    var exitReplayBtn = document.getElementById("risque-replay-exit-overlay");
-    if (exitReplayBtn) {
-      exitReplayBtn.addEventListener("click", function () {
-        try {
-          window.close();
-        } catch (e) {}
-        window.setTimeout(function () {
-          try {
-            if (window.closed) return;
-            setStatus("Close this replay window manually if Exit did nothing (browser security).");
-          } catch (e2) {}
-        }, 200);
-      });
-    }
-    var pickBtn = document.getElementById("risque-replay-file-pick");
-    var roundsSec = document.getElementById("risque-replay-rounds-section");
-    if (pickBtn) {
-      pickBtn.addEventListener("click", function () {
-        var el = document.getElementById("risque-replay-file");
-        if (el) el.click();
-      });
-    }
-    if (roundsSec) {
-      roundsSec.addEventListener("click", function (e) {
-        var t = e.target;
-        if (!t || !t.closest) return;
-        var chip = t.closest(".risque-replay-round-chip");
-        if (!chip || !roundsSec.contains(chip)) return;
-        var si = chip.getAttribute("data-seek-index");
-        if (si != null && String(si).length) {
-          var ix = parseInt(si, 10);
-          if (isFinite(ix) && ix >= 0) {
-            e.preventDefault();
-            seekPlaybackToIndex(ix);
-            return;
-          }
-        }
-        var r = parseInt(chip.getAttribute("data-round"), 10);
-        if (!isFinite(r) || r < 1) return;
-        e.preventDefault();
-        seekPlaybackToRound(r);
-      });
-    }
-    window.risqueReplayPickFile = function () {
-      var el = document.getElementById("risque-replay-file");
-      if (el) el.click();
-    };
-    document.addEventListener("keydown", function (e) {
-      if (e.altKey && String(e.key).toLowerCase() === "o") {
-        e.preventDefault();
-        window.risqueReplayPickFile();
-      }
-    });
-    risqueReplayPositionHud();
-    window.addEventListener("resize", risqueReplayPositionHud);
-    requestAnimationFrame(function () {
-      risqueReplayPositionHud();
-      requestAnimationFrame(risqueReplayPositionHud);
-    });
-    var inp = document.getElementById("risque-replay-file");
-    if (inp) {
-      inp.addEventListener("change", function () {
-        // inp.files is live — clearing value empties it. Snapshot before reset.
-        var filesSnap =
-          inp.files && inp.files.length ? Array.prototype.slice.call(inp.files, 0) : [];
-        inp.value = "";
-        if (filesSnap.length) {
-          onFilesSelected(filesSnap);
-        }
-      });
-    }
-    document.addEventListener("keydown", function (e) {
-      if (e.key !== "Escape") return;
-      if (!window.__risqueReplayLoadedPack) return;
-      e.preventDefault();
-      replayStopToCleanStandby();
-    });
+    risqueReplayMachineEnsureHandlersWired();
+    risqueReplayUpdateLauncherPathHint();
     clearReplayChipHighlight();
     updateReplayTapeCountLine(null);
     updateRoundsLoadedUi(null, null);
@@ -2328,184 +2867,17 @@
       openedFromGameAuto = false;
     }
 
-    var folderBtn = document.getElementById("risque-replay-folder-connect");
-    var refreshBtn = document.getElementById("risque-replay-folder-refresh");
-    if (folderBtn && typeof window.showDirectoryPicker === "function") {
-      folderBtn.addEventListener("click", function () {
-        window
-          .showDirectoryPicker({ id: "risque-save-root", mode: "readwrite" })
-          .then(function (dir) {
-            var put =
-              typeof window.risqueSaveFolderIdbPut === "function"
-                ? window.risqueSaveFolderIdbPut(dir)
-                : Promise.resolve();
-            return put.then(function () {
-              return risqueReplayLoadFromDirectoryHandle(dir);
-            });
-          })
-          .catch(function (e) {
-            if (e && e.name !== "AbortError") {
-              setStatus("Folder: " + (e && e.message ? e.message : String(e)));
-            }
-          });
-      });
-    } else if (folderBtn) {
-      folderBtn.disabled = true;
-      folderBtn.title = "Folder picker needs Chromium (Chrome/Edge) on https or localhost.";
+    risqueReplayMachineBootstrapTapeFromGame(openedFromGameAuto);
+    try {
+      var launcherDisk =
+        (typeof window.risqueLocalDiskIsActive === "function" && window.risqueLocalDiskIsActive()) ||
+        (typeof window.risqueLocalDiskIsConfigured === "function" && window.risqueLocalDiskIsConfigured());
+      if (launcherDisk) {
+        setStatus("Launcher disk path active (C:\\risque\\save). Manual folder connect is optional.");
+      }
+    } catch (eLdHint) {
+      /* ignore */
     }
-
-    if (refreshBtn && typeof window.risqueSaveFolderIdbGet === "function") {
-      refreshBtn.addEventListener("click", function () {
-        risqueReplayRefreshFromStoredFolder();
-      });
-    } else     if (refreshBtn) {
-      refreshBtn.disabled = true;
-    }
-
-    /* Host stashes the live tape in localStorage right before opening Wayback; that must win over on-disk merge
-     * (replay-full.json / folder merge can lag the last battle). Folder load is fallback when LS is empty / quota. */
-    var waybackBootstrappedFromGame = false;
-
-    function replayPackLooksRich(pk) {
-      if (!pk || !pk.tape || !Array.isArray(pk.tape.events) || !pk.tape.events.length) return false;
-      var evs = pk.tape.events;
-      var hi;
-      for (hi = 0; hi < evs.length; hi++) {
-        var e = evs[hi];
-        if (e && e.type === "board" && e.segment === "deal") return true;
-      }
-      return evs.length > 120;
-    }
-
-    function applyLsBootstrapPackOrFalse() {
-      var bsRaw = null;
-      try {
-        bsRaw = localStorage.getItem("risqueWaybackBootstrapPack");
-      } catch (eLs0) {
-        /* ignore */
-      }
-      if (!bsRaw && window.opener) {
-        try {
-          bsRaw = window.opener.localStorage.getItem("risqueWaybackBootstrapPack");
-        } catch (eOp) {
-          /* ignore */
-        }
-      }
-      if (!bsRaw) return false;
-      try {
-        localStorage.removeItem("risqueWaybackBootstrapPack");
-      } catch (eRm0) {
-        /* ignore */
-      }
-      var bsParsed;
-      try {
-        bsParsed = JSON.parse(bsRaw);
-      } catch (eParseBs) {
-        return false;
-      }
-      var bsPack = normalizeImportedReplay(bsParsed);
-      if (
-        !bsPack &&
-        bsParsed &&
-        bsParsed.format === "risque-replay-v1" &&
-        bsParsed.tape &&
-        tapeVersionOk(bsParsed.tape.v)
-      ) {
-        bsPack = bsParsed;
-      }
-      if (!bsPack) return false;
-      enrichPlayerColorsFromTape(bsPack);
-      updateReplayTapeCountLine(null);
-      prepareLoadedPack(bsPack, [bsPack]);
-      return true;
-    }
-
-    if (openedFromGameAuto) {
-      try {
-        if (applyLsBootstrapPackOrFalse()) {
-          waybackBootstrappedFromGame = true;
-          /* LS gives one merged pack without per-file names; disk re-scan matches manual Refresh chips (DD, rNpM). */
-          risqueReplayScheduleLaunchFolderRefresh();
-        }
-      } catch (eBsFirst) {
-        try {
-          localStorage.removeItem("risqueWaybackBootstrapPack");
-        } catch (eRmFirst) {
-          /* ignore */
-        }
-        setStatus(
-          "Replay from game failed to parse — open REPLAY again from the host map, or Connect saved folder."
-        );
-      }
-
-      if (!waybackBootstrappedFromGame) {
-        var folderChain =
-          typeof window.risqueSaveFolderIdbGet === "function"
-            ? window.risqueSaveFolderIdbGet().then(function (h) {
-                if (!h) return null;
-                var rf = window.risqueSaveFolderEnsureReadable;
-                return typeof rf === "function"
-                  ? rf(h).then(function (rh) {
-                      return rh || h;
-                    })
-                  : Promise.resolve(h);
-              })
-            : Promise.resolve(null);
-
-        folderChain
-          .then(function (dh) {
-            if (!dh || typeof dh.entries !== "function") return Promise.resolve(false);
-            return risqueReplayLoadFromDirectoryHandle(dh, { skipStatus: true }).then(function () {
-              return !!window.__risqueReplayLoadedPack;
-            });
-          })
-          .then(function (folderOk) {
-            var pk = window.__risqueReplayLoadedPack;
-            var foldRich = replayPackLooksRich(pk);
-            if (folderOk && foldRich) {
-              waybackBootstrappedFromGame = true;
-              return;
-            }
-            try {
-              if (applyLsBootstrapPackOrFalse()) {
-                waybackBootstrappedFromGame = true;
-                risqueReplayScheduleLaunchFolderRefresh();
-              }
-            } catch (eBs) {
-              try {
-                localStorage.removeItem("risqueWaybackBootstrapPack");
-              } catch (eRm) {
-                /* ignore */
-              }
-              setStatus(
-                "Replay from game failed to parse — open REPLAY again from the host map, or Connect saved folder."
-              );
-            }
-          })
-          .catch(function () {
-            try {
-              if (applyLsBootstrapPackOrFalse()) {
-                waybackBootstrappedFromGame = true;
-                risqueReplayScheduleLaunchFolderRefresh();
-              }
-            } catch (eBs2) {
-              try {
-                localStorage.removeItem("risqueWaybackBootstrapPack");
-              } catch (eRm2) {
-                /* ignore */
-              }
-            }
-          })
-          .then(function () {
-            if (!waybackBootstrappedFromGame) {
-              risqueReplayBootStoredFolderFromIdb();
-              risqueReplayScheduleLaunchFolderRefresh();
-            }
-          });
-      }
-    } else {
-      risqueReplayBootStoredFolderFromIdb();
-      risqueReplayScheduleLaunchFolderRefresh();
-    }
+    scheduleReplayAutoplayIfDesired();
   });
 })();

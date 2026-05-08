@@ -187,6 +187,53 @@ function Start-RisqueLocalDiskApi {
     return ""
 }
 
+function Write-RisqueRuntimeStatus {
+    param(
+        [Parameter(Mandatory = $true)][string]$SaveRootPath,
+        [string]$DiskApiBase = "",
+        [switch]$HostedMode
+    )
+    $saveWritable = $false
+    try {
+        if (-not (Test-Path -LiteralPath $SaveRootPath)) {
+            New-Item -ItemType Directory -Path $SaveRootPath -Force | Out-Null
+        }
+        $probeFile = Join-Path $SaveRootPath ".risque-write-probe.tmp"
+        [System.IO.File]::WriteAllText($probeFile, "ok")
+        Remove-Item -LiteralPath $probeFile -Force -ErrorAction SilentlyContinue
+        $saveWritable = $true
+    }
+    catch {
+        $saveWritable = $false
+    }
+
+    $diskStatus = "INACTIVE"
+    if (-not $HostedMode -and -not [string]::IsNullOrWhiteSpace($DiskApiBase)) {
+        try {
+            $h = Invoke-WebRequest -Uri ($DiskApiBase.TrimEnd('/') + "/api/health") -UseBasicParsing -TimeoutSec 2
+            if ($h.StatusCode -eq 200) {
+                $diskStatus = "ACTIVE"
+            }
+        }
+        catch {
+            $diskStatus = "INACTIVE"
+        }
+    }
+
+    Write-Host ""
+    Write-Host "Runtime status:" -ForegroundColor Cyan
+    Write-Host "  Save root: $SaveRootPath"
+    Write-Host ("  Save root writable: " + $(if ($saveWritable) { "YES" } else { "NO" })) -ForegroundColor $(if ($saveWritable) { "Green" } else { "Yellow" })
+    if ($HostedMode) {
+        Write-Host "  Local disk API: HOSTED MODE (browser-only folder permissions)" -ForegroundColor DarkYellow
+    }
+    else {
+        Write-Host "  Local disk API: $diskStatus" -ForegroundColor $(if ($diskStatus -eq "ACTIVE") { "Green" } else { "Yellow" })
+    }
+    Write-Host "  Replay bootstrap handoff: LS + memory fallback (runtime managed)" -ForegroundColor DarkGray
+    Write-Host ""
+}
+
 function Get-RisqueBrowserPath {
     $pf86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
     $c1 = Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe"
@@ -514,7 +561,7 @@ if ($PrepareEnvOnly) {
             exit 1
         }
     }
-    Write-Host ""
+    Write-RisqueRuntimeStatus -SaveRootPath $SaveRoot -DiskApiBase $diskApiBaseForJson -HostedMode:$Hosted
     Write-Host "PrepareEnvOnly: save root + launcher paths ready (no browser launched)." -ForegroundColor Green
     Write-Host "  Repo: $RepoRoot"
     Write-Host "  Save: $SaveRoot"
@@ -572,6 +619,7 @@ else {
 $useDual = (-not $SingleWindow) -and (-not [string]::IsNullOrWhiteSpace($publicTvUrl))
 
 if ($useDual) {
+    Write-RisqueRuntimeStatus -SaveRootPath $SaveRoot -DiskApiBase $diskApiBaseForJson -HostedMode:$Hosted
     Write-Host ""
     Write-Host "Dual displays: host on primary, public TV on secondary..." -ForegroundColor Cyan
     Write-Host "  Host URL:   $launchUrl"
@@ -600,6 +648,7 @@ $profileHost = $BrowserProfileHost
 New-Item -ItemType Directory -Path $profileHost -Force | Out-Null
 Set-RisqueChromiumDownloadDirectory -ProfileDir $profileHost -DownloadDir $SaveRoot
 Write-Host "Chromium default download folder set to: $SaveRoot" -ForegroundColor Cyan
+Write-RisqueRuntimeStatus -SaveRootPath $SaveRoot -DiskApiBase $diskApiBaseForJson -HostedMode:$Hosted
 
 $browserArgs = @(
     "--user-data-dir=$profileHost",

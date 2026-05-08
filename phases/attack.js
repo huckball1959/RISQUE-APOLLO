@@ -688,6 +688,14 @@ function formatBattleOutcomeFriendly(attackerOwner, defenderOwner, attackerLosse
 }
 
 function saveGameState() {
+  if (typeof window.risquePersistHostGameState === "function") {
+    try {
+      window.risquePersistHostGameState(window.gameState);
+      return;
+    } catch (eFastPersist) {
+      /* fallback below */
+    }
+  }
   function writeState() {
     localStorage.setItem("gameState", JSON.stringify(window.gameState));
   }
@@ -2026,11 +2034,13 @@ function applyBattleRoundAfterRoll(snap, opts) {
       /* Battle tape: capture frame above + autoCompleteTroopTransferLeaveBehind's record — avoid third duplicate here. */
       const eliminated = checkPlayerElimination(opponent);
       if (eliminated) {
+        window.gameState.risqueCampaignInterruptedByElimination = true;
         if (window.gameState.turnOrder.length === 1) {
           scheduleImmediateGameWinAfterElimination(player, opponent, true);
-          return { conquered: true, campaignHalted: false };
+          return { conquered: true, campaignHalted: false, campaignInterruptedByElimination: true };
         }
         scheduleAttackEliminatedProceedToConquerPrompt(player, opponent);
+        return { conquered: true, campaignHalted: false, campaignInterruptedByElimination: true };
       } else {
         checkWinCondition();
       }
@@ -3903,6 +3913,13 @@ async function runInstantCampaignExecution() {
   const condInstant = campaignType === 'cond' && !campaignCondFromPauseRow;
   const condT = condInstant && campaignCondThreshold != null ? campaignCondThreshold : null;
   campaignTrace('instant:run_start', { path: cp.slice(), leaveBehind, condThreshold: condT });
+  if (window.gameState) {
+    try {
+      delete window.gameState.risqueCampaignInterruptedByElimination;
+    } catch (eClrCampInt) {
+      /* ignore */
+    }
+  }
   attackChainFromCampaign = false;
   const outcomes = [];
   let stopped = null;
@@ -3979,6 +3996,7 @@ async function runInstantCampaignExecution() {
     let conquered = false;
     let instantCondStopThisHop = false;
     let instantHaltWeakGarrison = false;
+    let instantInterruptedByElimination = false;
     while (attacker.troops > 1 && defender.troops > 0) {
       if (condInstant && condT != null && attacker.troops <= condT) {
         stopped = `INSTANT COND: CONDITIONAL STOP — attacking stack ≤ ${condT}.`;
@@ -4018,6 +4036,31 @@ async function runInstantCampaignExecution() {
       }
       if (res.conquered) {
         conquered = true;
+        if (
+          window.gameState &&
+          (window.gameState.risqueCampaignInterruptedByElimination === true ||
+            risqueDeferredEliminationConquerPrompt ||
+            window.gameState.risqueDeferConquerElimination)
+        ) {
+          stopped =
+            `Campaign interrupted: ${prettyTerritoryName(to)} eliminated a player. ` +
+            "Resolving conquer/cards now; resume attacks afterward.";
+          instantMirrorStopAt = to;
+          campaignTrace('instant:campaign_interrupt_elimination', { from, to, via: 'deferred-flag' });
+          instantInterruptedByElimination = true;
+          await risqueYieldInstantCampaignPaint();
+          break;
+        }
+        if (res.campaignInterruptedByElimination) {
+          stopped =
+            `Campaign interrupted: ${prettyTerritoryName(to)} eliminated a player. ` +
+            "Resolving conquer/cards now; resume attacks afterward.";
+          instantMirrorStopAt = to;
+          campaignTrace('instant:campaign_interrupt_elimination', { from, to });
+          instantInterruptedByElimination = true;
+          await risqueYieldInstantCampaignPaint();
+          break;
+        }
         if (res.campaignHalted) {
           instantHaltWeakGarrison = true;
           stopped = `Campaign halted: only 1 troop remained on ${prettyTerritoryName(
@@ -4033,6 +4076,12 @@ async function runInstantCampaignExecution() {
     }
 
     if (instantCondStopThisHop) {
+      break;
+    }
+
+    if (instantInterruptedByElimination) {
+      outcomes.push(`Won ${prettyTerritoryName(from)} → ${prettyTerritoryName(to)} in ${rounds} combat round(s).`);
+      outcomes.push('Campaign interrupted by elimination — conquer/cards flow takes over.');
       break;
     }
 
@@ -4413,6 +4462,36 @@ function pauseCampaignRoundTick() {
       clearInterval(pauseCampaignInterval);
       pauseCampaignInterval = null;
     }
+    if (
+      window.gameState &&
+      (window.gameState.risqueCampaignInterruptedByElimination === true ||
+        risqueDeferredEliminationConquerPrompt ||
+        window.gameState.risqueDeferConquerElimination)
+    ) {
+      pauseCampaignMirrorStopLabel = defender && defender.label ? defender.label : null;
+      pauseCampaignStopped =
+        `Campaign interrupted: ${prettyTerritoryName(defender.label)} eliminated a player. ` +
+        'Resolving conquer/cards now; resume attacks afterward.';
+      campaignTrace('pause:campaign_interrupt_elimination', {
+        from: attacker && attacker.label ? attacker.label : '',
+        to: defender && defender.label ? defender.label : '',
+        via: 'deferred-flag'
+      });
+      pauseCampaignFinalize();
+      return;
+    }
+    if (res.campaignInterruptedByElimination) {
+      pauseCampaignMirrorStopLabel = defender && defender.label ? defender.label : null;
+      pauseCampaignStopped =
+        `Campaign interrupted: ${prettyTerritoryName(defender.label)} eliminated a player. ` +
+        'Resolving conquer/cards now; resume attacks afterward.';
+      campaignTrace('pause:campaign_interrupt_elimination', {
+        from: attacker && attacker.label ? attacker.label : '',
+        to: defender && defender.label ? defender.label : ''
+      });
+      pauseCampaignFinalize();
+      return;
+    }
     pauseCampaignOutcomes.push(
       `Won ${prettyTerritoryName(attacker.label)} → ${prettyTerritoryName(defender.label)} in ${pauseCampaignRoundsThisHop} combat round(s).`
     );
@@ -4471,6 +4550,13 @@ function runPauseCampaignExecution() {
   pauseCampaignOutcomes = [];
   pauseCampaignStopped = null;
   pauseCampaignMirrorStopLabel = null;
+  if (window.gameState) {
+    try {
+      delete window.gameState.risqueCampaignInterruptedByElimination;
+    } catch (eClrCampInt2) {
+      /* ignore */
+    }
+  }
   attackChainFromCampaign = false;
   isPauseCampaignRunning = true;
   campaignTrace('pause:run_start', { path: campaignCommittedPath.slice(), leaveBehind: pauseCampaignLeaveBehind });

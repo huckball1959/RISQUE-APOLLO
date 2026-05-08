@@ -202,10 +202,14 @@
       !risquePhaseIsContinentalConquestChain(window.gameState.phase)
     ) {
       window.gameState.phase = "attack";
-      try {
-        localStorage.setItem("gameState", JSON.stringify(window.gameState));
-      } catch (e) {
-        /* ignore */
+      if (typeof window.risquePersistHostGameState === "function") {
+        window.risquePersistHostGameState(window.gameState);
+      } else {
+        try {
+          localStorage.setItem("gameState", JSON.stringify(window.gameState));
+        } catch (e) {
+          /* ignore */
+        }
       }
     }
 

@@ -183,6 +183,21 @@
       if (prev && typeof prev === "object" && prev.risqueReplayDiskSaveDisabled === true) {
         newGs.risqueReplayDiskSaveDisabled = true;
       }
+      var allowed = { safe_fun: 1, safe_lean: 1, safe_no_replay: 1, manual: 1 };
+      var tier = null;
+      if (prev && typeof prev === "object" && prev.risqueAutosaveTier && allowed[prev.risqueAutosaveTier]) {
+        tier = prev.risqueAutosaveTier;
+      }
+      if (!tier) {
+        try {
+          tier = localStorage.getItem("risqueAutosaveTierPreference") || "";
+        } catch (eLs) {
+          tier = "";
+        }
+      }
+      if (tier && allowed[tier]) {
+        newGs.risqueAutosaveTier = tier;
+      }
     } catch (e) {
       /* ignore */
     }

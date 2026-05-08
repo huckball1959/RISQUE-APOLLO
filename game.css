@@ -9592,4 +9592,35 @@ body.replay-machine-page .risque-replay-exit-btn:hover {
   border-color: #ff8888;
 }
 
+body.replay-machine-page .risque-replay-scope-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 6px;
+}
 
+body.replay-machine-page .risque-replay-launcher-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  text-align: center;
+  margin: 6px 4px 0;
+  line-height: 1.35;
+}
+
+/* Match replay-machine.html inline tape count styling */
+body.replay-machine-page .risque-replay-tape-count-line {
+  text-align: center;
+  font-family: "Courier New", Courier, monospace;
+  font-size: clamp(17px, 2.4vw, 24px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #ff8c00;
+  text-shadow: 0 0 12px rgba(255, 140, 0, 0.45);
+  margin: 0 0 10px;
+  min-height: 0;
+}
+body.replay-machine-page .risque-replay-tape-count-line:empty {
+  display: none;
+  margin: 0;
+}

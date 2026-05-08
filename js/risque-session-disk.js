@@ -177,6 +177,7 @@
 
   window.risqueSessionDiskScheduleTurnCheckpoint = function (gs, prevPlayerName) {
     if (!gs || window.risqueDisplayIsPublic) return;
+    if (gs.risqueAutosaveTier === "manual") return;
     var turnOrder = gs.turnOrder;
     if (!Array.isArray(turnOrder) || !turnOrder.length) return;
     try {
@@ -229,7 +230,6 @@
    */
   window.risqueSessionDiskWriteReplayPackNamed = function (gs, fname, pack) {
     if (!gs || window.risqueDisplayIsPublic) return Promise.resolve(false);
-    if (gs.risqueReplayDiskSaveDisabled === true) return Promise.resolve(false);
     if (!fname || !pack || pack.format !== "risque-replay-v1") return Promise.resolve(false);
     if (!getRoot() && !localDiskActive()) return Promise.resolve(false);
     return window.risqueSessionDiskEnsureReplayDirHandle(gs).then(function (replayDir) {
@@ -269,7 +269,6 @@
       var torPrev = window.risqueReplayResolveTurnOrderIndex(turnOrderEarly, prev);
       if (torPrev && torPrev.index >= 0 && torPrev.canonical) prev = torPrev.canonical;
     }
-    if (liveGs.risqueReplayDiskSaveDisabled === true) return Promise.resolve(true);
     try {
       if (typeof window.risqueReplayEnsureLatestBoardFrame === "function") {
         window.risqueReplayEnsureLatestBoardFrame(liveGs);
@@ -282,6 +281,23 @@
         ? window.risqueReplayFlattenEvents(liveGs)
         : [];
     if (!Array.isArray(flat) || !flat.length) return Promise.resolve(true);
+    if (liveGs.risqueAutosaveTier === "safe_no_replay") {
+      try {
+        liveGs.risqueReplayGranularWatermark = flat.length;
+      } catch (eSn) {
+        /* ignore */
+      }
+      return Promise.resolve(true);
+    }
+    /* Low-write mode: advance watermark with tape so the first granular flush is not a bogus "catch-up to end". */
+    if (liveGs.risqueReplayGranularDiskWritesEnabled !== true) {
+      try {
+        liveGs.risqueReplayGranularWatermark = flat.length;
+      } catch (eWmOff) {
+        /* ignore */
+      }
+      return Promise.resolve(true);
+    }
     /* Saves before granular export: skip one-shot catch-up (would merge many rounds into one rNpM file). */
     if (liveGs.risqueReplayGranularWatermark == null) {
       try {

@@ -4,6 +4,7 @@
  */
 (function () {
   "use strict";
+  var REPLAY_TAPE_SIDECAR_KEY = "risqueReplayTapeSidecar";
 
   /**
    * Opt-in tape debugging for a new match (host + replay-machine):
@@ -69,7 +70,7 @@
 
   var REPLAY_STRIP_KEYS = [
     "risqueReplayTape",
-    "risqueReplayTapeSessionKey",
+    /* Keep risqueReplayTapeSessionKey in saves so load + sidecar can match the same match (tiny string). */
     "risqueReplayPlayerColors",
     "risqueReplayByRound",
     "risqueReplayPlaybackActive",
@@ -97,6 +98,94 @@
     });
     return out;
   };
+
+  function replayTapeSidecarSerialize(gs) {
+    if (!gs || typeof gs !== "object") return null;
+    if (!gs.risqueReplayByRound || typeof gs.risqueReplayByRound !== "object") return null;
+    var hasAny = false;
+    var keys = Object.keys(gs.risqueReplayByRound);
+    var i;
+    for (i = 0; i < keys.length; i++) {
+      var arr = gs.risqueReplayByRound[keys[i]];
+      if (Array.isArray(arr) && arr.length) {
+        hasAny = true;
+        break;
+      }
+    }
+    if (!hasAny) return null;
+    return {
+      v: 1,
+      savedAt: Date.now(),
+      sessionKey: gs.risqueReplayTapeSessionKey || null,
+      risqueReplayTape: gs.risqueReplayTape && typeof gs.risqueReplayTape === "object" ? gs.risqueReplayTape : null,
+      risqueReplayByRound: gs.risqueReplayByRound,
+      risqueReplayPlayerColors:
+        gs.risqueReplayPlayerColors && typeof gs.risqueReplayPlayerColors === "object"
+          ? gs.risqueReplayPlayerColors
+          : {},
+      risqueReplayGranularWatermark:
+        gs.risqueReplayGranularWatermark != null ? Number(gs.risqueReplayGranularWatermark) || 0 : 0,
+      risqueReplayDealDeployDiskWritten: !!gs.risqueReplayDealDeployDiskWritten
+    };
+  }
+
+  function replayTapeSidecarPersist(gs) {
+    try {
+      var payload = replayTapeSidecarSerialize(gs);
+      if (!payload) return false;
+      localStorage.setItem(REPLAY_TAPE_SIDECAR_KEY, JSON.stringify(payload));
+      return true;
+    } catch (eSide) {
+      return false;
+    }
+  }
+
+  function replayTapeSidecarRestore(gs) {
+    if (!gs || typeof gs !== "object") return false;
+    var hasReplayNow =
+      (gs.risqueReplayByRound && Object.keys(gs.risqueReplayByRound).length > 0) ||
+      (gs.risqueReplayTape && Array.isArray(gs.risqueReplayTape.events) && gs.risqueReplayTape.events.length > 0);
+    if (hasReplayNow) return false;
+    try {
+      var raw = localStorage.getItem(REPLAY_TAPE_SIDECAR_KEY);
+      if (!raw) return false;
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return false;
+      var gSk = gs.risqueReplayTapeSessionKey != null ? String(gs.risqueReplayTapeSessionKey).trim() : "";
+      var pSk = parsed.sessionKey != null ? String(parsed.sessionKey).trim() : "";
+      if (pSk && gSk && pSk !== gSk) {
+        return false;
+      }
+      if (pSk && !gSk) {
+        return false;
+      }
+      if (!parsed.risqueReplayByRound || typeof parsed.risqueReplayByRound !== "object") return false;
+      var pKeys = Object.keys(parsed.risqueReplayByRound);
+      if (!pKeys.length) return false;
+      gs.risqueReplayByRound = parsed.risqueReplayByRound;
+      if (parsed.risqueReplayTape && typeof parsed.risqueReplayTape === "object") {
+        gs.risqueReplayTape = parsed.risqueReplayTape;
+      }
+      if (parsed.sessionKey) {
+        gs.risqueReplayTapeSessionKey = parsed.sessionKey;
+      }
+      if (parsed.risqueReplayPlayerColors && typeof parsed.risqueReplayPlayerColors === "object") {
+        gs.risqueReplayPlayerColors = parsed.risqueReplayPlayerColors;
+      }
+      if (parsed.risqueReplayGranularWatermark != null) {
+        gs.risqueReplayGranularWatermark = Number(parsed.risqueReplayGranularWatermark) || 0;
+      }
+      if (parsed.risqueReplayDealDeployDiskWritten === true) {
+        gs.risqueReplayDealDeployDiskWritten = true;
+      }
+      return true;
+    } catch (eRst) {
+      return false;
+    }
+  }
+
+  window.risqueReplayPersistTapeSidecar = replayTapeSidecarPersist;
+  window.risqueReplayRestoreFromSidecar = replayTapeSidecarRestore;
 
   function ensureReplayByRound(gs) {
     if (!gs || typeof gs !== "object") return;
@@ -391,6 +480,7 @@
       );
     }
     mergeReplayPlayerColors(gs);
+    replayTapeSidecarPersist(gs);
     pushMirror();
   }
 
@@ -404,6 +494,7 @@
     tape.openingRecorded = true;
     if (tape.hasDealFrames) {
       mergeReplayPlayerColors(gs);
+      replayTapeSidecarPersist(gs);
       pushMirror();
       return;
     }
@@ -414,6 +505,7 @@
       playerColors: Object.assign({}, gs.risqueReplayPlayerColors)
     };
     if (!appendReplayEvent(gs, evInit)) return;
+    replayTapeSidecarPersist(gs);
     pushMirror();
   };
 
@@ -436,6 +528,7 @@
     tape.openingRecorded = true;
     if (tape.hasDealFrames) {
       mergeReplayPlayerColors(gs);
+      replayTapeSidecarPersist(gs);
       pushMirror();
       return;
     }
@@ -446,6 +539,7 @@
       playerColors: Object.assign({}, gs.risqueReplayPlayerColors)
     };
     if (!appendReplayEvent(gs, evInit2)) return;
+    replayTapeSidecarPersist(gs);
     pushMirror();
   }
 
@@ -516,8 +610,8 @@
    */
   function tryFlushGranularDealDeployReplay(gs) {
     if (!shouldRecord(gs)) return;
-    /* DD.json disk export only — keep off when host disables replay disk writes (default). In-memory tape still records. */
-    if (gs.risqueReplayDiskSaveDisabled === true) return;
+    if (gs.risqueAutosaveTier === "safe_no_replay") return;
+    /* DD.json is cheap and valuable; keep this one even in low-write mode. */
     if (gs.risqueReplayDealDeployDiskWritten) return;
     if (gs.__risqueReplayDealFlushInFlight) return;
     if (typeof window.risqueSessionDiskWriteReplayPackNamed !== "function") return;
@@ -1713,7 +1807,8 @@
     } catch (e) {
       /* ignore */
     }
-    return true;
+    /* Reliability-first default: keep replay in STORAGE_KEY unless explicitly enabled. */
+    return false;
   }
   window.risqueLsReplayLiteEffective = risqueLsReplayLiteEffective;
 
