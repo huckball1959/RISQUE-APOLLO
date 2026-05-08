@@ -2102,7 +2102,8 @@ window.gameUtils = {
         const p = orderedPlayers[i] || { name: '', territories: [], troopsTotal: 0, cardCount: 0 };
         const troops = Number(p.troopsTotal) || 0;
         const cards = this.playerCardCount(p);
-        rows.push([p.name || '-', p.territories.length || 0, troops, p.name ? cards : 0]);
+        const nameCell = p.name ? String(p.name) : '';
+        rows.push([nameCell, p.territories.length || 0, troops, p.name ? cards : 0]);
         risqueCoreDebugLog(`[Core] Stats for ${p.name || 'empty'}: territories=${p.territories.length || 0}, troops=${troops}, cards=${cards}`);
       }
       const deckRemaining = Array.isArray(statGs.deck) ? statGs.deck.length : 0;
@@ -2120,8 +2121,8 @@ window.gameUtils = {
         const isPlayerRow = rowIndex >= 1 && rowIndex <= maxPlayers;
         const isRoundsRow = rowIndex === rows.length - 1;
         const playerName = isPlayerRow ? row[0] : null;
-        const player = playerName && playerName !== '-' ? statGs.players.find(p => p.name === playerName) : null;
-        const isCurrentPlayer = playerName === statGs.currentPlayer;
+        const player = playerName ? statGs.players.find(p => p.name === playerName) : null;
+        const isCurrentPlayer = !!playerName && playerName === statGs.currentPlayer;
         const rowHeightToUse = isHeader ? headerRowHeight : rowHeight;
         const fontSize = isHeader ? headerFontSize : cellFontSize;
         row.forEach((cell, colIndex) => {
@@ -2220,8 +2221,8 @@ window.gameUtils = {
           const isPlayerRow = rowIndex >= 1 && rowIndex <= maxPlayers;
           const isRoundsRow = rowIndex === rows.length - 1;
           const playerName = isPlayerRow ? row[0] : null;
-          const player = playerName && playerName !== '-' ? statGs.players.find(p => p.name === playerName) : null;
-          const isCurrentPlayer = isPlayerRow && playerName === statGs.currentPlayer;
+          const player = playerName ? statGs.players.find(p => p.name === playerName) : null;
+          const isCurrentPlayer = isPlayerRow && !!playerName && playerName === statGs.currentPlayer;
           if (isHeader) {
             tr.className = 'hud-stats-header-row';
           } else if (isPlayerRow) {

@@ -770,23 +770,6 @@
     return "<div class=\"risque-login-preset-bar\">" + parts.join("") + "</div>";
   }
 
-  function restoreSavedPlayerNames(overlay) {
-    try {
-      var raw = localStorage.getItem(LAST_LOGIN_NAMES_KEY);
-      if (!raw) return;
-      var arr = JSON.parse(raw);
-      if (!Array.isArray(arr)) return;
-      for (var i = 0; i < arr.length && i < 6; i += 1) {
-        var inp = overlay.querySelector("#name-" + (i + 1));
-        if (inp && typeof arr[i] === "string" && arr[i]) {
-          inp.value = String(arr[i]).toUpperCase();
-        }
-      }
-    } catch (e) {
-      /* ignore */
-    }
-  }
-
   /**
    * game.html: map (stage.png) on the left; login form in runtime HUD phase slot on the right.
    */
@@ -847,7 +830,6 @@
     var loginPromptEl = formRoot.querySelector(".risque-login-compact-prompt");
     if (welcomeTextEl) welcomeTextEl.textContent = welcomeTextContent;
     if (loginPromptEl) loginPromptEl.textContent = loginPromptContent;
-    restoreSavedPlayerNames(formRoot);
 
     var initialLoginFormMirror = opts.initialLoginFormMirror;
     var loginMirrorSyncT = null;
@@ -1128,7 +1110,6 @@
     if (loginPromptEl) {
       loginPromptEl.textContent = opts.loginPrompt != null ? opts.loginPrompt : "INPUT PLAYER NAME AND CHOOSE COLOR";
     }
-    restoreSavedPlayerNames(root);
 
     function getTargetRow() {
       var rows = root.querySelectorAll(".player-row");
@@ -1458,7 +1439,6 @@
     var loginPromptEl = overlay.querySelector(".login-prompt");
     if (welcomeTextEl) welcomeTextEl.textContent = welcomeTextContent;
     if (loginPromptEl) loginPromptEl.textContent = loginPromptContent;
-    restoreSavedPlayerNames(overlay);
 
     function getTargetRow() {
       var rows = overlay.querySelectorAll(".player-row");

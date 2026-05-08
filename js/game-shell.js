@@ -372,8 +372,6 @@
   var loginLoadRedirect = query.get("loginLoadRedirect") || DEFAULT_LOAD_AFTER_LOGIN;
   var loginMounted = false;
   var boardCornerToolsWired = false;
-  /** SHOW row: { cellW, h, barW } captured while expanded — never read .offsetWidth after collapse (it goes to 0). */
-  var hideTopRowCellPx = null;
   /** So the public tab can reload into deploy1 vs deploy2 (URL may have no ?phase=). */
   var MIRROR_DEPLOY_ROUTE_KEY = "risqueMirrorDeployRoute";
   /** Public tab: last mirrored phase (storage handler + polling). */
@@ -394,7 +392,7 @@
     typeof window.risqueLoginRecoveryUrl === "function"
       ? window.risqueLoginRecoveryUrl()
       : "game.html?phase=login&loginLegacyNext=game.html%3Fphase%3DplayerSelect%26selectKind%3DfirstCard&loginLoadRedirect=game.html%3Fphase%3Dcardplay%26legacyNext%3Dincome.html";
-  var BOARD_CORNER_TOOLS_VERSION = "24";
+  var BOARD_CORNER_TOOLS_VERSION = "25";
   /** Default + last-used autosave policy for new sessions (localStorage). */
   var RISQUE_AUTOSAVE_TIER_PREF_KEY = "risqueAutosaveTierPreference";
   var RISQUE_AUTOSAVE_TIERS = { safe_fun: 1, safe_lean: 1, safe_no_replay: 1, manual: 1 };
@@ -7041,7 +7039,7 @@
       '<div class="risque-ras-card">' +
       '<p class="risque-ras-title">Autosave &amp; replay</p>' +
       '<p class="risque-ras-body">Choose how often the host writes checkpoints to your connected save folder. ' +
-      "Manual <strong>SAVE</strong> always writes the current game plus the full replay tape in one JSON file.</p>" +
+      "Manual <strong>SAVE</strong> / <strong>SAVE + REPLAY</strong> always writes the current game JSON plus a separate <strong>full-session replay</strong> JSON (deal through now).</p>" +
       '<ul class="risque-ac-opt-list">' +
       '<li><label class="risque-ac-opt">' +
       '<input type="radio" name="risque-autosave-tier" value="safe_fun"' +
@@ -7993,19 +7991,14 @@
     el.innerHTML = "<pre>" + lines.join("\n") + "</pre>";
   }
 
-  /** Map + stats only: empty territories so login does not show a saved game on the board */
+  /** Map + stats only: empty board and no roster names until players sign in. */
   function visualStateForLoginScreen(gs) {
     try {
       var s = JSON.parse(JSON.stringify(gs));
       s.phase = "login";
-      if (s.players && Array.isArray(s.players)) {
-        s.players.forEach(function (p) {
-          p.territories = [];
-          p.troopsTotal = 0;
-          p.cards = [];
-          p.cardCount = 0;
-        });
-      }
+      s.currentPlayer = "";
+      s.turnOrder = [];
+      s.players = [];
       return s;
     } catch (e) {
       return gs;
@@ -8550,7 +8543,7 @@
       flag.id = id;
       flag.setAttribute("role", "status");
       flag.style.cssText =
-        "position:fixed;left:500px;bottom:76px;z-index:2147483646;pointer-events:none;" +
+        "position:fixed;left:325px;bottom:76px;z-index:2147483646;pointer-events:none;" +
         "border-radius:8px;padding:8px 12px;font:700 12px Arial,Helvetica,sans-serif;letter-spacing:.3px;" +
         "box-shadow:0 6px 18px rgba(0,0,0,.4);text-transform:uppercase;";
       document.body.appendChild(flag);
@@ -9272,30 +9265,6 @@
     loadBtn.tabIndex = 0;
   }
 
-  /** SHOW state: 2× HIDE cell width, capped to bar width — uses values saved before collapse (post-collapse DOM width is 0). */
-  function syncCollapsedHideTopRowButtonSize() {
-    var wrapEl = document.getElementById("risque-board-corner-tools");
-    var btn = document.getElementById("risque-board-hide-top-row");
-    if (!wrapEl || !btn || !wrapEl.classList.contains("risque-board-corner-tools--host-top-collapsed")) {
-      return;
-    }
-    if (!hideTopRowCellPx || !hideTopRowCellPx.cellW) {
-      return;
-    }
-    var canvas = document.getElementById("canvas");
-    var barW =
-      canvas && canvas.offsetWidth > 80
-        ? Math.max(hideTopRowCellPx.barW || 0, canvas.offsetWidth - 50)
-        : hideTopRowCellPx.barW > 50
-          ? hideTopRowCellPx.barW
-          : 1870;
-    var showW = Math.min(barW, hideTopRowCellPx.cellW * 2);
-    btn.style.width = showW + "px";
-    var h = hideTopRowCellPx.h > 0 ? hideTopRowCellPx.h : 46;
-    btn.style.minHeight = h + "px";
-    btn.style.height = h + "px";
-  }
-
   var __risqueGracePickJsonCurrent = null;
   var __risqueGracePickIndexCurrent = -1;
   var __risqueGracePickJsonUndo = null;
@@ -9668,8 +9637,8 @@
       '<div class="risque-board-corner-bottom" role="navigation" aria-label="Documentation, replay, autosave">' +
       '<button type="button" id="risque-board-manual" class="risque-board-op-btn">MANUAL</button>' +
       '<button type="button" id="risque-board-help" class="risque-board-op-btn">HELP</button>' +
-      '<button type="button" id="risque-board-replay-machine" class="risque-board-op-btn" title="Open Wayback in the control panel (no pop-up). Uses in-memory tape + connected save folder (default C:\\risque\\save).">REPLAY</button>' +
-      '<button type="button" id="risque-board-save-with-replay" class="risque-board-op-btn" title="Same as SAVE GAME: game JSON + full session replay sidecar.">SAVE + REPLAY</button>' +
+      '<button type="button" id="risque-board-replay-machine" class="risque-board-op-btn risque-board-op-btn--hide-with-top" title="Open Wayback in the control panel (no pop-up). Uses in-memory tape + connected save folder (default C:\\risque\\save).">REPLAY</button>' +
+      '<button type="button" id="risque-board-save-with-replay" class="risque-board-op-btn risque-board-op-btn--hide-with-top" title="Same as SAVE GAME: game JSON + full session replay sidecar.">SAVE + REPLAY</button>' +
       '<div class="risque-board-round-save-cluster">' +
       '<div id="risque-board-round-save-status" class="risque-board-round-save-status risque-board-op-btn" aria-live="polite" aria-label="Autosave — configure policy and save folder" title="Autosave policy and save folder — click to configure">Autosave Config</div>' +
       '<button type="button" id="risque-board-emergency-save" class="risque-board-emergency-save-btn" title="Force immediate game + replay snapshot (mid-round). Writes game-emergency-* and replay-emergency-* files to SAVE or Downloads.">EMERGENCY</button>' +
@@ -9887,54 +9856,10 @@
     var hideTopRowBtn = document.getElementById("risque-board-hide-top-row");
     if (hideTopRowBtn && wrap) {
       hideTopRowBtn.addEventListener("click", function () {
-        var wasCollapsed = wrap.classList.contains("risque-board-corner-tools--host-top-collapsed");
-        var rect = null;
-        var barW0 = null;
-        if (!wasCollapsed) {
-          rect = hideTopRowBtn.getBoundingClientRect();
-          var topEl = document.querySelector(".risque-board-corner-top");
-          if (topEl && topEl.offsetWidth > 50) {
-            barW0 = topEl.offsetWidth;
-          } else {
-            var cn = document.getElementById("canvas");
-            if (cn && cn.offsetWidth > 50) {
-              barW0 = Math.max(100, cn.offsetWidth - 50);
-            }
-          }
-        }
         var collapsed = wrap.classList.toggle("risque-board-corner-tools--host-top-collapsed");
         hideTopRowBtn.setAttribute("aria-pressed", collapsed ? "true" : "false");
         hideTopRowBtn.textContent = collapsed ? "SHOW BUTTONS" : "HIDE BUTTONS";
-        if (collapsed) {
-          if (rect && rect.width > 4 && rect.height > 4) {
-            var cellW0 = Math.round(rect.width);
-            var barW = barW0 != null && barW0 > 50 ? barW0 : cellW0 * 6 + 45;
-            hideTopRowCellPx = { cellW: cellW0, h: Math.round(rect.height), barW: barW };
-            var showW = Math.min(barW, cellW0 * 2);
-            hideTopRowBtn.style.width = showW + "px";
-            hideTopRowBtn.style.minHeight = hideTopRowCellPx.h + "px";
-            hideTopRowBtn.style.height = hideTopRowCellPx.h + "px";
-          }
-          requestAnimationFrame(function () {
-            syncCollapsedHideTopRowButtonSize();
-          });
-        } else {
-          hideTopRowCellPx = null;
-          hideTopRowBtn.style.removeProperty("width");
-          hideTopRowBtn.style.removeProperty("height");
-          hideTopRowBtn.style.removeProperty("min-height");
-        }
       });
-      if (!window.__risqueHideTopRowResizeWired) {
-        window.__risqueHideTopRowResizeWired = true;
-        window.addEventListener(
-          "resize",
-          function () {
-            syncCollapsedHideTopRowButtonSize();
-          },
-          { passive: true }
-        );
-      }
     }
   }
 

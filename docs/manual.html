@@ -72,6 +72,7 @@
     <a href="../game.html?phase=login">Return to login</a>
     <a href="manual.html" aria-current="page">Game manual</a>
     <a href="manual.html#login">Login screen</a>
+    <a href="manual.html#replay">Replay</a>
     <a href="help.html">Help</a>
   </nav>
   <main>
@@ -91,6 +92,9 @@
 
     <h2 id="login">3. Login screen</h2>
     <p>The login view uses a high-contrast “terminal” style: bright green accents on black. Use it to enter who is playing and in which colors before the match begins.</p>
+    <p class="note" style="border-left-color:#38bdf8;">
+      On each fresh visit, <strong>name fields start empty</strong> and the <strong>stats panel</strong> on the map shows no player names until you log in. Use <strong>Preset 1–6</strong> if you want a one-tap lineup; nothing is auto-filled from your last session unless you apply a preset yourself.
+    </p>
 
     <h3>Names and colors</h3>
     <ul>
@@ -153,11 +157,18 @@
     <h2>9. Winning</h2>
     <p>You win when no other player controls any territory. The app may also declare a winner if only one player remains in the turn order.</p>
 
-    <h2>10. Instant replay (postgame)</h2>
-    <p>After the match, the <strong>host</strong> (private control screen) can run an <strong>instant replay</strong> of the recorded map timeline. The host picks where playback begins (default: <strong>full</strong> sequence from the <strong>territory deal</strong>); other options include skipping to the <strong>first battle</strong> or starting at the first frame <strong>at or after a chosen round</strong> when the tape includes round stamps. The timeline covers the random <strong>deal</strong>, <strong>setup deploy</strong> (placing starting armies), <strong>battle</strong> snapshots after fights, and brief <strong>elimination</strong> callouts when a player is wiped out. It is a map-only recap (no dice animation or card faces).</p>
+    <h2 id="replay">10. Replay &amp; Wayback (host)</h2>
+    <p>RISQUE records a <strong>replay tape</strong> in memory for the current session: territory <strong>deal</strong>, <strong>deploy</strong> steps, <strong>battles</strong>, and <strong>eliminations</strong>, as map snapshots (not a full dice or card animation).</p>
     <ul>
-      <li>If a <strong>public TV</strong> or second browser tab mirrors the host, it can show the same board advancing in step with replay, as long as mirroring is already working for live play.</li>
-      <li>Replay uses what was stored during that session; very old saves from before replay was recorded may have no replay, or only part of the game.</li>
+      <li><strong>After a normal game end</strong> (no crash), the host can open <strong>Wayback</strong> (the in-panel replay viewer) and play the <strong>full session from the deal</strong> even if you never wrote small replay files (<code>DD.json</code> / <code>rNpM.json</code>) to disk — the tape lives in the running session until the tab closes.</li>
+      <li><strong>REPLAY</strong> on the host map opens Wayback beside the board. It can merge <strong>in-memory</strong> data with files in your <strong>save folder</strong> when you use the launcher or connect a folder (see Help → Saves).</li>
+      <li>When launching via <strong>RISQUE.bat</strong> / the local tool, a small <strong>status badge</strong> may appear on the host login screen while the save API is available; it disappears after you log in.</li>
+      <li><strong>Manual SAVE</strong> always exports the current game plus a <strong>full replay</strong> for that session (game JSON and a separate replay JSON), regardless of autosave tier — so you can archive a complete animation pack after the fact.</li>
+      <li><strong>Autosave policy</strong> only changes <em>automatic</em> disk habits (checkpoints and optional granular replay files). It does not take away postgame tape in a healthy session or manual saves (see Help).</li>
+    </ul>
+    <ul>
+      <li>If a <strong>public TV</strong> tab mirrors the host, it can follow the same board during replay when mirroring is already set up for live play.</li>
+      <li>Very old JSON saves from before replay was recorded may not include a tape; load them as games, not as full historical animations.</li>
     </ul>
 
     <div class="note">

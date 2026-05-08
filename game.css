@@ -981,34 +981,34 @@ html.risque-public-wayback-mirror.risque-view-public #risque-main-panel-body {
 #risque-board-open-public {
   grid-column: 5;
 }
+/* Same grid cell + stretch for HIDE and SHOW — typography matches other top-row chips (wrap + height). */
 #risque-board-hide-top-row {
   grid-column: 6;
+  grid-row: 1;
+  justify-self: stretch;
+  align-self: stretch;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  text-align: center;
+  line-height: 1.15;
+  /* Expanded row height comes from the tallest chip; when collapsed, keep that two-line chip profile. */
+  min-height: 4rem;
 }
 
-/*
- * SHOW BUTTONS only: row collapsed — center on canvas x = 540px (stack starts at left: 25px on canvas).
- * HIDE BUTTONS stays in grid column 6 above when not collapsed.
- */
 .risque-board-corner-tools--host-top-collapsed .risque-board-corner-top {
-  min-height: 44px;
-}
-/* SHOW: centered at canvas x≈540; width/height set in JS from real HIDE cell (CSS alone collapses to a tiny square). */
-.risque-board-corner-tools--host-top-collapsed #risque-board-hide-top-row {
-  position: absolute;
-  grid-column: auto;
-  left: calc(540px - 25px);
-  top: 0;
-  transform: translateX(-50%);
-  z-index: 2;
-  box-sizing: border-box;
-  white-space: nowrap;
-  word-break: normal;
-  overflow-wrap: normal;
-  writing-mode: horizontal-tb;
-  text-orientation: mixed;
+  min-height: 4rem;
 }
 
 .risque-board-corner-tools--host-top-collapsed .risque-board-op-btn--collapsible-row {
+  display: none !important;
+}
+
+.risque-board-corner-tools--host-top-collapsed .risque-board-op-btn--hide-with-top {
   display: none !important;
 }
 
@@ -1018,15 +1018,18 @@ html.risque-public-wayback-mirror.risque-view-public #risque-main-panel-body {
   right: auto;
   bottom: 25px;
   top: auto;
-  display: grid;
-  grid-template-columns: auto auto auto auto auto;
-  gap: var(--risque-corner-btn-gap);
-  width: max-content;
-  max-width: calc(var(--risque-corner-map-max) - 50px);
+  /* Full map-aligned width so the autosave / EMERGENCY / ROUND cluster can stay
+     right-pinned when HIDE BUTTONS removes the manual row controls — they must
+     not slide left with the shorter row. */
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 7px;
+  width: var(--risque-corner-op-bar-w);
+  max-width: var(--risque-corner-op-bar-w);
   box-sizing: border-box;
   pointer-events: auto;
-  /* Bottom-align chips + round column so bases line up with the orange badge foot. */
-  align-items: end;
 }
 
 .risque-board-round-save-cluster {
@@ -1035,15 +1038,21 @@ html.risque-public-wayback-mirror.risque-view-public #risque-main-panel-body {
   align-items: flex-end;
   gap: var(--risque-corner-btn-gap);
   flex: 0 0 auto;
+  margin-left: auto;
   width: max-content;
   max-width: 100%;
+  min-width: 0;
 }
 
 /* Same minimum width as SAVE + REPLAY (~13.5rem) — fits “Autosave Config”. */
 #risque-board-save-with-replay,
 .risque-board-round-save-cluster .risque-board-round-save-status {
   box-sizing: border-box;
-  min-width: 13.5rem;
+  min-width: 11.75rem;
+}
+
+#risque-board-manual {
+  min-width: 7.2rem;
 }
 
 .risque-board-round-save-cluster .risque-board-round-save-status {
@@ -1119,7 +1128,7 @@ html.risque-public-wayback-mirror.risque-view-public #risque-main-panel-body {
 
 .risque-map-round-indicator--host {
   align-self: flex-end;
-  margin-left: 6px;
+  margin-left: 16px;
 }
 
 .risque-map-round-indicator__label {
