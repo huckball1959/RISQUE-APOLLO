@@ -1,6 +1,6 @@
 /**
  * Conquer celebration / elimination interstitial — mounted on game.html ?phase=conquer.
- * Replaces standalone conquer.html; next step for conquer chain remains con-cardtransfer.html.
+ * Runtime conquer celebration — mounted from game.html ?phase=conquer. Next: game.html ?phase=con-cardtransfer.
  */
 (function () {
   "use strict";
@@ -271,10 +271,10 @@
       } catch (e3) {
         /* ignore */
       }
-      logToStorage("Navigating to con-cardtransfer.html");
+      logToStorage("Navigating to game.html?phase=con-cardtransfer");
       uiOverlay.classList.add("fade-out");
       setTimeout(function () {
-        navigateTo("con-cardtransfer.html");
+        navigateTo("game.html?phase=con-cardtransfer");
       }, 2000);
     }
 

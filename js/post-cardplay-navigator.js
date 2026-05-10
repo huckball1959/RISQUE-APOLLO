@@ -38,9 +38,11 @@
    * con-income even when legacyNext is only income.html (deploy does not repeat the nested con-income URL).
    */
   function shouldUseConquerRuntimeIncome(gs, legacyNext) {
-    if (!gs || gs.risqueConquestChainActive !== true) return false;
+    if (!gs) return false;
+    /* Shell/bookmark explicitly requests continental income — do not require risqueConquestChainActive (JSON saves often omit it). */
+    if (legacyNextEncodesConIncome(legacyNext)) return true;
     if (cardplayIncomeModeIsConquer(gs)) return true;
-    return legacyNextEncodesConIncome(legacyNext);
+    return false;
   }
 
   /**
@@ -58,6 +60,13 @@
    * @returns {{ calculatorId: string, phase: string, href: string }}
    */
   function resolveAfterRuntimeCardplay(gs, legacyNext) {
+    if (gs && gs.aerialAttackEligible) {
+      return {
+        calculatorId: Calc.AERIAL_DEPLOY,
+        phase: "deploy",
+        href: "game.html?phase=deploy&kind=turn"
+      };
+    }
     var useConquerIncome = shouldUseConquerRuntimeIncome(gs, legacyNext);
     if (useConquerIncome) {
       return {
@@ -73,30 +82,8 @@
     };
   }
 
-  /**
-   * Conquer cardplay (phases/con-cardplay-phase.js) → deploy if aerial card, else con-income.
-   *
-   * @param {object} gs
-   * @returns {{ calculatorId: string, phase: string, href: string }}
-   */
-  function resolveAfterConCardplay(gs) {
-    if (gs && gs.aerialAttackEligible) {
-      return {
-        calculatorId: Calc.AERIAL_DEPLOY,
-        phase: "deploy",
-        href: "game.html?phase=deploy&kind=turn"
-      };
-    }
-    return {
-      calculatorId: Calc.CONQUEST_BOOKS_CONTINENTS,
-      phase: "con-income",
-      href: "game.html?phase=con-income"
-    };
-  }
-
   window.risquePostCardplayNavigator = {
     resolveAfterRuntimeCardplay: resolveAfterRuntimeCardplay,
-    resolveAfterConCardplay: resolveAfterConCardplay,
     legacyNextEncodesConIncome: legacyNextEncodesConIncome,
     shouldUseConquerRuntimeIncome: shouldUseConquerRuntimeIncome,
     shouldUseContinentalRuntimeIncome: shouldUseConquerRuntimeIncome

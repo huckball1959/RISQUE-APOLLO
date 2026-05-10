@@ -63,7 +63,7 @@
       background-color: #000;
     }
   </style>
-  <link rel="stylesheet" href="game.css?v=hide-show-toggle-wrap-match-2026-05-08i" />
+  <link rel="stylesheet" href="game.css?v=cardplay-map-highlight-host-2026-05-09" />
   <script>
     (function () {
       try {
@@ -235,6 +235,7 @@
           "receivecard",
           "postgame",
           "con-income",
+          "con-deploy",
           "conquer",
           "privacyGate"
         ];
@@ -447,33 +448,32 @@
   </script>
 
   <script src="js/risque-colors.js?v=map-saturation-plus25pct-2026-05-07u"></script>
-  <script src="js/replay-tape.js?v=autosave-no-dd-when-no-replay-2026-05-08"></script>
-  <script src="js/core.js?v=login-stats-empty-names-2026-05-08j"></script>
+  <script src="js/replay-tape.js?v=ls-replay-lite-docs-2026-05-08b"></script>
+  <script src="js/core.js?v=cardplay-map-highlight-host-2026-05-09"></script>
   <script src="js/risque-session-disk.js?v=autosave-tier-manual-no-replay-2026-05-08"></script>
   <script src="js/risque-session-staging.js?v=staging-disk-opt-in-2026-04-29"></script>
   <script src="js/risque-external-urls.js"></script>
   <script src="js/risque-local-disk.js?v=launcher-disk-api-2026-05-01"></script>
-  <script src="phases/login.js?v=login-empty-fields-no-restore-2026-05-08j"></script>
-  <script src="phases/privacy-gate.js?v=privacy-continue-quota-2026-05-01"></script>
-  <script src="phases/player-select.js?v=centralized-color-registry-2026-05-07f"></script>
-  <script src="phases/deal.js?v=public-mirror-every-deal-step-2026-05-06"></script>
-  <script src="phases/deploy.js?v=deploy-clear-std-income-meta-2026-04-27e"></script>
+  <script src="phases/login.js?v=soft-nav-playerSelect-2026-05-09"></script>
+  <script src="phases/privacy-gate.js?v=handoff-overlay-defer-rAF-2026-05-09"></script>
+  <script src="phases/player-select.js?v=roulette-max-2s-2026-05-09"></script>
+  <script src="phases/deal.js?v=soft-nav-deployOrder-select-2026-05-09"></script>
+  <script src="phases/deploy.js?v=unified-con-deploy-2026-05-09"></script>
   <script src="phases/conquer.js?v=conquer-mirror-order-2026-04-14"></script>
-  <script src="phases/attack.js?v=campaign-elim-break-outer-loop-2026-05-08c"></script>
-  <script src="phases/runtime-hud.js?v=grace-three-options-2026-05-06"></script>
-  <script src="js/post-cardplay-navigator.js"></script>
-  <script src="phases/cardplay.js?v=gate-process-valid-book-2026-05-06"></script>
-  <script src="phases/income.js?v=income-std-income-continent-meta-2026-04-27e"></script>
-  <script src="phases/con-income-phase.js?v=con-income-player-casefix-2026-04-27e"></script>
-  <script src="phases/attack-phase.js?v=attack-phase-persist-fastpath-2026-05-08"></script>
-  <script src="phases/reinforce.js?v=host-reinforce-trooprow"></script>
-  <script src="phases/reinforce-phase.js?v=reinforce-phase-flex-order-2026-04-19b"></script>
-  <script src="phases/receivecard.js?v=cardplay-entry-replay-deal-2026-05-01"></script>
+  <script src="phases/attack.js?v=unified-attack-mount-2026-05-09"></script>
+  <script src="phases/runtime-hud.js?v=voice-never-clobber-campaign-2026-05-09"></script>
+  <script src="js/post-cardplay-navigator.js?v=lean-navigator-2026-05-09"></script>
+  <script src="phases/cardplay.js?v=con-cardplay-runtime-hud-2026-05-09"></script>
+  <script src="phases/income.js?v=income-hud-continue-slot-2026-05-09"></script>
+  <script src="phases/reinforce.js?v=unified-reinforce-mount-2026-05-09"></script>
+  <script src="phases/receivecard.js?v=receivecard-busy-reset-soft-nav-2026-05-09"></script>
   <script src="phases/postgame.js?v=flat-archive-msg-2026-05-02"></script>
-  <script src="phases/conquer-phase.js?v=game-win-replay-flush-2026-05-06"></script>
+  <script src="phases/conquer-phase.js?v=con-chain-game-html-only-2026-05-09"></script>
+  <script src="phases/con-cardtransfer-phase.js?v=con-chain-game-html-only-2026-05-09"></script>
+  <script src="phases/con-transfertroops-phase.js?v=con-chain-game-html-only-2026-05-09"></script>
   <script src="js/risque-save-folder-idb.js?v=autosave-folder-2026-04-30"></script>
   <script src="js/replay-machine.js?v=launcher-disk-active-status-hint-2026-05-08c"></script>
-  <script src="js/game-shell.js?v=autosave-overlay-copy-two-files-2026-05-08l"></script>
+  <script src="js/game-shell.js?v=unified-con-income-2026-05-09"></script>
 </body>
 </html>
 

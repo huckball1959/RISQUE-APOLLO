@@ -197,19 +197,9 @@
   function setControlVoiceText(primary, report, opts) {
     opts = opts || {};
     var cvEl = document.getElementById("control-voice");
-    var instantCampaignHud =
-      cvEl && cvEl.classList.contains("ucp-control-voice--campaign-instant");
-    /* Attack campaign UI uses innerHTML on #control-voice-text; textContent here would strip it. */
+    /* Campaign uses innerHTML on #control-voice-text; textContent would strip Begin/Commit UI. Also avoid the
+     * instant_committed + no shell class case where a forced voice write wiped buttons but left campaignMode set. */
     if (
-      !opts.force &&
-      typeof window.risqueIsAttackCampaignActive === "function" &&
-      window.risqueIsAttackCampaignActive()
-    ) {
-      return;
-    }
-    if (
-      opts.force &&
-      instantCampaignHud &&
       typeof window.risqueIsAttackCampaignActive === "function" &&
       window.risqueIsAttackCampaignActive()
     ) {
@@ -224,6 +214,16 @@
       vr.style.display = rt ? "block" : "none";
       vr.className =
         "ucp-voice-report" + (rt && opts.reportClass ? " " + opts.reportClass : "");
+    }
+    /* Campaign ended but class lingered — strips stale shell so force voice updates and attack mount can't deadlock. */
+    if (
+      cvEl &&
+      vt &&
+      typeof window.risqueIsAttackCampaignActive === "function" &&
+      !window.risqueIsAttackCampaignActive()
+    ) {
+      cvEl.classList.remove("ucp-control-voice--campaign-instant");
+      vt.classList.remove("campaign-instant-voice");
     }
     try {
       if (window.gameState) {
@@ -430,7 +430,10 @@
   function syncPosition() {
     var root = document.getElementById("runtime-hud-root");
     if (!root) return;
-    var svg = document.querySelector(".svg-overlay");
+    var svg =
+      typeof window.risqueGetCanvasSvgOverlay === "function"
+        ? window.risqueGetCanvasSvgOverlay()
+        : document.querySelector("#canvas .svg-overlay");
     var topPx = 220;
     if (svg) {
       var sg = svg.querySelector("#stats-group");

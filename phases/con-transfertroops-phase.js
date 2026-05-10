@@ -1,5 +1,5 @@
 /**
- * Conquest optional troop move after deploy (was con-transfertroops.html).
+ * Conquest optional troop move after deploy.
  * Mounted from game.html ?phase=con-transfertroops or when saved phase is con-transfertroops.
  */
 (function () {

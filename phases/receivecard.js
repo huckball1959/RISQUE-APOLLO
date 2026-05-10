@@ -517,7 +517,7 @@
     if (gs.risqueConquestChainActive) {
       deployUrl += "&conquestAfterDeploy=1";
     }
-    /* Conquer-mode income (con-income): books + new continents; see phases/con-income-phase.js. */
+    /* Conquer-mode income (con-income): books + new continents; see phases/income.js runConquerIncome. */
     var incomeUrl = "game.html?phase=con-income&legacyNext=" + encodeURIComponent(deployUrl);
     var nav = "game.html?phase=cardplay&legacyNext=" + encodeURIComponent(incomeUrl);
 
@@ -540,6 +540,12 @@
     function goConquestCardplay() {
       if (typeof window.risqueMarkPostReceiveCardplayBlackout === "function") {
         window.risqueMarkPostReceiveCardplayBlackout();
+      }
+      if (
+        typeof window.risqueNavigateGameHtmlSoft === "function" &&
+        window.risqueNavigateGameHtmlSoft(navWithSkip)
+      ) {
+        return;
       }
       if (window.risqueNavigateWithFade) {
         window.risqueNavigateWithFade(navWithSkip);
@@ -637,6 +643,15 @@
         var target = "game.html?phase=cardplay&legacyNext=income.html&postReceive=1";
         if (typeof window.risqueMarkPostReceiveCardplayBlackout === "function") {
           window.risqueMarkPostReceiveCardplayBlackout();
+        }
+        if (
+          typeof window.risqueNavigateGameHtmlSoft === "function" &&
+          window.risqueNavigateGameHtmlSoft(target)
+        ) {
+          try {
+            window.__risqueReceiveCardEndTurnBusy = false;
+          } catch (eBusySoft) {}
+          return;
         }
         if (window.risqueNavigateWithFade) {
           window.risqueNavigateWithFade(target);
@@ -791,6 +806,10 @@
     }
 
     window.__risqueReceiveCardInitialized = false;
+    /* Full page unload cleared this; same-document nav does not — unblock Continue on later visits. */
+    try {
+      window.__risqueReceiveCardEndTurnBusy = false;
+    } catch (eBusyMount) {}
 
     uiOverlay.classList.add("visible");
     uiOverlay.classList.remove("fade-out");

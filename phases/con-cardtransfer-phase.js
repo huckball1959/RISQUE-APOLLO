@@ -1,5 +1,5 @@
 /**
- * Post-conquest card transfer interstitial (was con-cardtransfer.html).
+ * Post-conquest card transfer interstitial. Mounted from game.html ?phase=con-cardtransfer.
  * Proceed continues to game.html ?phase=con-cardplay.
  */
 (function () {

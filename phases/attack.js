@@ -1,5 +1,5 @@
 // attack.js - Full refactored and cleaned attack phase logic
-// Primary UI: game.html ?phase=attack (risquePhases.attack.mount → initAttackPhase).
+// Primary UI: game.html ?phase=attack — risquePhases.attack.mount (below) → initAttackPhase.
 // Optional bookmarked URLs ending in /attack.html still call initAttackPhase below (same as game.html ?phase=attack).
 // All functionality is preserved exactly, visuals remain pixel-perfect, code is now organized and maintainable
 
@@ -8,6 +8,22 @@ function risqueAttackDoc(name) {
     return window.risqueResolveDocUrl(name);
   }
   return name === "win" ? "win.html" : name === "conquer" ? "game.html?phase=conquer" : "";
+}
+
+/** Prefer same-document game.html navigation (no full reload); fallback fade or location. */
+function navigateGameHtmlPreferSoft(url) {
+  try {
+    if (typeof window.risqueNavigateGameHtmlSoft === "function" && window.risqueNavigateGameHtmlSoft(url)) {
+      return;
+    }
+  } catch (eNav) {
+    /* ignore */
+  }
+  if (window.risqueNavigateWithFade) {
+    window.risqueNavigateWithFade(url);
+  } else {
+    window.location.href = url;
+  }
 }
 
 let attacker = null;
@@ -30,6 +46,14 @@ const PAUSABLE_BLITZ_MS = 1000;
 const PAUSABLE_BLITZ_SPIN_MS = 1000;
 /** Pause after reveal before the next pausable-blitz round (independent of spin length). */
 const PAUSABLE_BLITZ_GAP_AFTER_REVEAL_MS = 1000;
+/** Instant Blitz / Campaign Instant / Instant COND: ms between combat rounds (~4/sec) for troop-loss flash readability. */
+const INSTANT_COMBAT_MS_PER_ROUND = 250;
+
+function instantCombatRoundDelay() {
+  return new Promise(function (resolve) {
+    setTimeout(resolve, INSTANT_COMBAT_MS_PER_ROUND);
+  });
+}
 /** Clears mirrored `risqueBattleLossFlashLabels` after one-shot territory halo */
 let battleLossFlashClearTimer = null;
 /** Single-roll UI: clear before a new roll or cancel so stale timeouts cannot desync dice vs outcome. */
@@ -137,6 +161,20 @@ let attackerInitialTroops = 0;
 let transferCompleted = false;
 /** Document capture listener so wheel works over the map, not only on #troops-input (reinforce-style). */
 let attackTroopTransferWheelHandler = null;
+
+/** Abort prior attack control listeners when game.html remounts attack (soft nav); avoids stacking handlers on document + toolbar. */
+let __risqueAttackControlsAbort = null;
+
+function teardownAttackPhaseControlListeners() {
+  if (__risqueAttackControlsAbort) {
+    try {
+      __risqueAttackControlsAbort.abort();
+    } catch (eAb) {
+      /* ignore */
+    }
+    __risqueAttackControlsAbort = null;
+  }
+}
 
 function teardownAttackTroopTransferWheel() {
   if (attackTroopTransferWheelHandler) {
@@ -470,12 +508,13 @@ function updateBattlePanelReadout() {
   syncAttackPhaseActionLocks();
 }
 
-function wireConditionalInputGuards() {
+function wireConditionalInputGuards(signal) {
   if (!elements.condThreshold) return;
+  const opts = signal ? { signal } : {};
   const stopBubble = (e) => e.stopPropagation();
-  elements.condThreshold.addEventListener('click', stopBubble);
-  elements.condThreshold.addEventListener('mousedown', stopBubble);
-  elements.condThreshold.addEventListener('keydown', stopBubble);
+  elements.condThreshold.addEventListener('click', stopBubble, opts);
+  elements.condThreshold.addEventListener('mousedown', stopBubble, opts);
+  elements.condThreshold.addEventListener('keydown', stopBubble, opts);
 }
 
 /** Clear dice visuals after a roll so transfer / idle state does not look like a new roll. */
@@ -986,8 +1025,8 @@ function checkWinCondition() {
 }
 
 /**
- * Host: attack-phase mount creates #ui-svg + #aerial-bridge-group. Public TV follows mirror only and
- * never mounts attack-phase — ensure the overlay layer exists so the dashed aerial line can draw.
+ * Host: risquePhases.attack.mount creates #ui-svg + #aerial-bridge-group. Public TV follows mirror only and
+ * never mounts attack — ensure the overlay layer exists so the dashed aerial line can draw.
  */
 function ensureAerialBridgeOverlayDom() {
   const canvas = document.getElementById('canvas');
@@ -1005,7 +1044,7 @@ function ensureAerialBridgeOverlayDom() {
     uiSvg.style.zIndex = '3';
     uiSvg.style.pointerEvents = 'none';
     const gWrap = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    gWrap.setAttribute('pointer-events', 'auto');
+    gWrap.setAttribute('pointer-events', 'none');
     const gBridge = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     gBridge.setAttribute('id', 'aerial-bridge-group');
     gWrap.appendChild(gBridge);
@@ -1013,7 +1052,7 @@ function ensureAerialBridgeOverlayDom() {
     canvas.appendChild(uiSvg);
   } else if (!document.getElementById('aerial-bridge-group')) {
     const gWrap = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    gWrap.setAttribute('pointer-events', 'auto');
+    gWrap.setAttribute('pointer-events', 'none');
     const gBridge = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     gBridge.setAttribute('id', 'aerial-bridge-group');
     gWrap.appendChild(gBridge);
@@ -1077,6 +1116,7 @@ function renderAerialBridge(retryAttempt) {
   line.setAttribute('stroke-width', '4');
   line.setAttribute('stroke-dasharray', '5,5');
   line.setAttribute('vector-effect', 'non-scaling-stroke');
+  line.setAttribute('pointer-events', 'none');
   line.classList.add('aerial-bridge');
   elements.aerialBridgeGroup.appendChild(line);
   logToStorage('Rendered aerial bridge');
@@ -1216,6 +1256,14 @@ function dismissPrompt(opts) {
   closeCampaignDropdown();
   const legacy = document.getElementById('prompt');
   if (legacy) legacy.remove();
+
+  if (
+    !keepInstantCampaignHud &&
+    typeof window.risqueIsAttackCampaignActive === 'function' &&
+    window.risqueIsAttackCampaignActive()
+  ) {
+    clearAttackCampaignPlanningAfterRun();
+  }
 
   clearControlVoiceSlotsAndExtras();
 
@@ -2234,7 +2282,7 @@ function rollDice() {
   return { attackerLosses: snap.attackerLosses, defenderLosses: snap.defenderLosses };
 }
 
-function blitz() {
+async function blitz() {
   if (window.gameState && String(window.gameState.attackPhase || '') === 'pending_transfer') {
     return;
   }
@@ -2264,13 +2312,14 @@ function blitz() {
     roundCount += 1;
     const result = applyBattleRoundAfterRoll(snap, {
       skipBattleVoice: true,
-      skipLossFlash: true,
+      skipLossFlash: false,
       instantBlitz: true
     });
     if (result.conquered) {
       conquered = true;
       break;
     }
+    await instantCombatRoundDelay();
   }
 
   if (roundCount) {
@@ -2342,7 +2391,7 @@ function beginConditionalBlitzPrep(mode) {
                   pendingConditionalThreshold = null;
                   dismissPrompt();
                   if (mode === 'instant') {
-                    executeInstantConditionalBlitz(t);
+                    void executeInstantConditionalBlitz(t);
                   } else {
                     startPausableConditionalBlitz(t);
                   }
@@ -2404,8 +2453,8 @@ function startPausableConditionalBlitz(threshold) {
   syncPausableBlitzButtonVisibility();
 }
 
-/** Instant / COND: resolve all rolls immediately after Begin attack (no per-round timer). */
-function executeInstantConditionalBlitz(threshold) {
+/** Instant / COND: resolve rolls after Begin attack at {@link INSTANT_COMBAT_MS_PER_ROUND} cadence (troop flash). */
+async function executeInstantConditionalBlitz(threshold) {
   if (!attacker || !defender) return;
 
   stopPausableBlitzInternal();
@@ -2441,7 +2490,7 @@ function executeInstantConditionalBlitz(threshold) {
       rounds += 1;
       const result = applyBattleRoundAfterRoll(snap, {
         skipBattleVoice: true,
-        skipLossFlash: true,
+        skipLossFlash: false,
         instantBlitz: true
       });
       syncConditionCountdownMirror({ threshold });
@@ -2449,6 +2498,7 @@ function executeInstantConditionalBlitz(threshold) {
         conquered = true;
         break;
       }
+      await instantCombatRoundDelay();
     }
   } finally {
     clearConditionCountdownMirror();
@@ -2560,7 +2610,7 @@ function beginInstantBlitzPrep() {
         title: 'Begin Instant Blitz',
         onClick: () => {
           dismissPrompt();
-          blitz();
+          void blitz();
         }
       }
     ],
@@ -3121,6 +3171,31 @@ function territorySnapshot(label) {
   return null;
 }
 
+/** Map taps are intentionally ignored in these modes; without feedback players assume the board is dead. */
+let __risqueCampaignBlockedMapHintAtMs = 0;
+
+function hintCampaignMapBlockedNoOp() {
+  const now = Date.now();
+  if (now - __risqueCampaignBlockedMapHintAtMs < 2800) return;
+  __risqueCampaignBlockedMapHintAtMs = now;
+  let msg = '';
+  if (campaignMode === 'instant_committed') {
+    msg =
+      'Campaign path is locked — use Begin (or Reset / Exit) in the green campaign strip below; map picks stay off until then.';
+  } else if (campaignMode === 'cond_await_condition') {
+    msg =
+      'Campaign is waiting on the condition flow — finish Confirmed / Begin attack in the prompts and strip; map picks are paused.';
+  } else if (campaignMode === 'armed') {
+    msg = 'Campaign path is armed — use BEGIN in the prompt (or Exit / Reset); map picks stay off until then.';
+  }
+  if (!msg) return;
+  prependCombatLog(msg, 'system');
+  if (window.risqueRuntimeHud && typeof window.risqueRuntimeHud.setControlVoiceText === 'function') {
+    const cp = window.gameState && window.gameState.currentPlayer ? String(window.gameState.currentPlayer) : 'Player';
+    window.risqueRuntimeHud.setControlVoiceText(String(cp).toUpperCase() + ' — CAMPAIGN', msg, { force: true });
+  }
+}
+
 function scrollCampaignVoiceToTop() {
   const cv = document.querySelector('.ucp-control-voice');
   if (cv) cv.scrollTop = 0;
@@ -3304,7 +3379,26 @@ function clearAttackCampaignPlanningAfterRun() {
     vt.classList.remove('campaign-instant-voice');
     vt.innerHTML = '';
   }
+  try {
+    syncCampaignWarpathMirror();
+  } catch (eWarSync) {
+    /* ignore */
+  }
 }
+
+/**
+ * Called from risquePhases.attack.mount on every attack mount (including next player after soft-nav).
+ * Ensures stale campaign memory + DOM from the prior attacker cannot suppress voice updates or map routing.
+ */
+window.risquePrepareAttackPhaseShellMount = function (gs) {
+  try {
+    const state = gs || window.gameState;
+    resetAttackInMemoryStateAfterShellPhaseRemount(state);
+    clearAttackCampaignPlanningAfterRun();
+  } catch (ePrep) {
+    /* ignore */
+  }
+};
 
 /**
  * Host control voice + mirror: same headlines as public TV, then idle attack prompt (Cancel).
@@ -3884,8 +3978,8 @@ function performInstantCommitFromKeys() {
 }
 
 /**
- * Host instant campaign mutates state and calls renderTerritories in a tight loop; without yielding, the
- * browser paints only when the run ends — TV looks smooth because mirror applies on separate turns.
+ * Host instant campaign mutates state and yields between combat rounds so the board + mirror can paint;
+ * {@link instantCombatRoundDelay} paces Instant rounds (~4/sec).
  */
 function risqueYieldInstantCampaignPaint() {
   if (window.risqueDisplayIsPublic) return Promise.resolve();
@@ -4029,7 +4123,7 @@ async function runInstantCampaignExecution() {
         campaignHopIndex: i,
         campaignPathLength: cp.length,
         skipBattleVoice: true,
-        skipLossFlash: true
+        skipLossFlash: false
       });
       if (condInstant && condT != null) {
         syncConditionCountdownMirror({ threshold: condT });
@@ -4072,6 +4166,7 @@ async function runInstantCampaignExecution() {
         await risqueYieldInstantCampaignPaint();
         break;
       }
+      await instantCombatRoundDelay();
       await risqueYieldInstantCampaignPaint();
     }
 
@@ -5235,11 +5330,7 @@ function goToReinforce() {
   window.gameState.phase = 'reinforce';
   saveGameState();
   setTimeout(() => {
-    if (window.risqueNavigateWithFade) {
-      window.risqueNavigateWithFade('game.html?phase=reinforce');
-    } else {
-      window.location.href = 'game.html?phase=reinforce';
-    }
+    navigateGameHtmlPreferSoft('game.html?phase=reinforce');
   }, 1000);
 }
 
@@ -5349,7 +5440,7 @@ function startAerialAttack() {
   syncAttackPhaseActionLocks();
 }
 
-window.handleTerritoryClick = function(label, owner, troops) {
+function risqueAttackPhaseTerritoryClick(label, owner, troops) {
   if (window.gameState.attackPhase === 'pending_transfer') return;
   if (isAwaitingAerialConfirm) return;
 
@@ -5358,6 +5449,7 @@ window.handleTerritoryClick = function(label, owner, troops) {
     campaignMode === 'instant_committed' ||
     campaignMode === 'cond_await_condition'
   ) {
+    hintCampaignMapBlockedNoOp();
     return;
   }
 
@@ -5518,7 +5610,89 @@ window.handleTerritoryClick = function(label, owner, troops) {
       attacker: Array.from({ length: maxAttackerDice }, (_, i) => ({ value: i + 1, label: `${i + 1} Dice` }))
     });
   }
-};
+}
+
+window.risqueAttackPhaseTerritoryClick = risqueAttackPhaseTerritoryClick;
+window.handleTerritoryClick = risqueAttackPhaseTerritoryClick;
+
+/**
+ * Full reload resets attack.js `let` state; soft navigation does not. Stale campaign / blitz / aerial-pick
+ * flags make handleTerritoryClick no-op (e.g. armed | instant_committed | cond_await_condition returns early).
+ */
+function resetAttackInMemoryStateAfterShellPhaseRemount(gs) {
+  stopPauseCampaignExecutionInternal();
+  stopPausableBlitzInternal();
+  clearPausableBlitzRoundTimers();
+  pausableBlitzCondThreshold = null;
+  pendingConditionalThreshold = null;
+  isPausableBlitzActive = false;
+  isPausableBlitzPaused = false;
+
+  campaignMode = null;
+  campaignType = null;
+  campaignCondFromPauseRow = false;
+  campaignCondThreshold = null;
+  campaignPath = [];
+  campaignPendingStart = null;
+  attackChainFromCampaign = false;
+  campaignPreferredGarrison = 1;
+  campaignCommittedPath = [];
+  campaignInstantLastOutcomes = [];
+  campaignInstantLastStopped = null;
+  instantCampaignGarrison = 1;
+
+  clearInstantCampaignWarpath();
+  syncCampaignWarpathMirror();
+
+  attacker = null;
+  defender = null;
+  isAwaitingAerialConfirm = false;
+  isSelectingAerialSource = false;
+  isSelectingAerialTarget = false;
+  aerialPendingPreview = null;
+  aerialSnapshotBeforePreview = null;
+  isAcquiring = false;
+
+  if (gs) {
+    try {
+      delete gs.risqueAerialLinkPending;
+    } catch (eAp) {
+      /* ignore */
+    }
+  }
+}
+
+/** Matches attack mount helper risquePhaseIsContinentalConquestChain — never coerce continental elimination chain steps to "attack". */
+function risquePhaseIsContinentalConquestChainForAttackMount(phase) {
+  const ph = String(phase || '');
+  return (
+    ph === 'conquer' ||
+    ph === 'con-cardtransfer' ||
+    ph === 'con-cardplay' ||
+    ph === 'con-income' ||
+    ph === 'con-deploy' ||
+    ph === 'con-transfertroops' ||
+    ph === 'con-receivecard'
+  );
+}
+
+/**
+ * Attack mount sets phase attack then persists; loadGameState here can still read stale storage
+ * (failed persist, quota, race). core.renderTerritories treats non-attack phase as non-attack UI and
+ * wires the wrong click handler — map taps appear dead.
+ */
+function risqueAttackMountCoerceHostPhaseForGameHtml(gs) {
+  if (!gs || window.risqueDisplayIsPublic) return false;
+  if (risquePhaseIsContinentalConquestChainForAttackMount(gs.phase)) return false;
+  try {
+    document.body.setAttribute('data-risque-phase', 'attack');
+  } catch (eBody) {
+    /* ignore */
+  }
+  if (String(gs.phase || '') === 'attack') return false;
+  gs.phase = 'attack';
+  return true;
+}
 
 function initAttackPhase(mountEpoch) {
   if (window.__risqueAttackInitialized) return true;
@@ -5551,7 +5725,17 @@ function initAttackPhase(mountEpoch) {
       window.gameUtils.showError('Could not load game state for attack.');
       return;
     }
+    teardownAttackPhaseControlListeners();
+    __risqueAttackControlsAbort = new AbortController();
+    const acSig = __risqueAttackControlsAbort.signal;
+
     window.gameState = gameState;
+
+    window.handleTerritoryClick = risqueAttackPhaseTerritoryClick;
+
+    const phaseCoercedToAttack = risqueAttackMountCoerceHostPhaseForGameHtml(gameState);
+
+    resetAttackInMemoryStateAfterShellPhaseRemount(gameState);
 
     let aerialStateMigrated = false;
     if (gameState.aerialAttack === true) {
@@ -5596,9 +5780,9 @@ function initAttackPhase(mountEpoch) {
       elements.playerName.style.color = window.gameUtils.colorMap[currentPlayer.color] || '#ffffff';
     }
     updateBattlePanelReadout();
-    wireConditionalInputGuards();
+    wireConditionalInputGuards(acSig);
 
-    if (aerialStateMigrated) {
+    if (aerialStateMigrated || phaseCoercedToAttack) {
       saveGameState();
       if (typeof window.risqueMirrorPushGameState === 'function') {
         window.risqueMirrorPushGameState();
@@ -5623,13 +5807,19 @@ function initAttackPhase(mountEpoch) {
 
     elements.aerialAttackGroup.style.display = 'block';
 
-    elements.roll.addEventListener('click', () => rollDice());
-    elements.blitz.addEventListener('click', (e) => {
-      e.stopPropagation();
-      closeCampaignDropdown();
-      toggleBlitzDropdown(e);
-    });
-    elements.blitzDropdown.addEventListener('click', e => {
+    elements.roll.addEventListener('click', () => rollDice(), { signal: acSig });
+    elements.blitz.addEventListener(
+      'click',
+      (e) => {
+        e.stopPropagation();
+        closeCampaignDropdown();
+        toggleBlitzDropdown(e);
+      },
+      { signal: acSig }
+    );
+    elements.blitzDropdown.addEventListener(
+      'click',
+      e => {
       const sub = e.target.closest('[data-blitz-mode]');
       if (sub) {
         e.stopPropagation();
@@ -5654,18 +5844,22 @@ function initAttackPhase(mountEpoch) {
           if (!isPausableBlitzActive && !isPausableBlitzPaused) beginBlitzStepPrep();
         }
       }
-    });
+    },
+      { signal: acSig }
+    );
     if (elements.pausableBlitz) {
-      elements.pausableBlitz.addEventListener('click', pausableBlitz);
+      elements.pausableBlitz.addEventListener('click', pausableBlitz, { signal: acSig });
     }
     if (elements.attackStepPauseBtn) {
-      elements.attackStepPauseBtn.addEventListener('click', attackStepPauseClick);
+      elements.attackStepPauseBtn.addEventListener('click', attackStepPauseClick, { signal: acSig });
     }
     if (elements.attackStepCancelBtn) {
-      elements.attackStepCancelBtn.addEventListener('click', () => cancelAttack());
+      elements.attackStepCancelBtn.addEventListener('click', () => cancelAttack(), { signal: acSig });
     }
     if (elements.campaignDropdown) {
-      elements.campaignDropdown.addEventListener('click', e => {
+      elements.campaignDropdown.addEventListener(
+        'click',
+        e => {
         const sub = e.target.closest('[data-campaign-mode]');
         if (sub) {
           e.stopPropagation();
@@ -5690,19 +5884,29 @@ function initAttackPhase(mountEpoch) {
             startCampaignPlanning('pause');
           }
         }
-      });
+      },
+        { signal: acSig }
+      );
     }
 
     if (elements.campaign && elements.campaignDropdown) {
-      elements.campaign.addEventListener('click', (e) => {
-        e.stopPropagation();
-        closeBlitzDropdown();
-        toggleCampaignDropdown(e);
-      });
+      elements.campaign.addEventListener(
+        'click',
+        (e) => {
+          e.stopPropagation();
+          closeBlitzDropdown();
+          toggleCampaignDropdown(e);
+        },
+        { signal: acSig }
+      );
     } else if (elements.campaign) {
-      elements.campaign.addEventListener('click', () => {
-        prependCombatLog('Campaign: reserved — details to follow.', 'system');
-      });
+      elements.campaign.addEventListener(
+        'click',
+        () => {
+          prependCombatLog('Campaign: reserved — details to follow.', 'system');
+        },
+        { signal: acSig }
+      );
     }
 
     const onDocClickCloseAttackMenus = (ev) => {
@@ -5722,8 +5926,10 @@ function initAttackPhase(mountEpoch) {
       closeBlitzDropdown();
       closeCampaignDropdown();
     };
-    document.addEventListener('click', onDocClickCloseAttackMenus, true);
-    document.addEventListener('keydown', onKeyEscapeCloseAttackMenus, true);
+    /* Bubble (not capture): closing menus must run *after* territory hit-testing so map taps still register
+     * while BLITZ/CAMPAIGN flyouts are open (capture-first was eating/clobbering the interaction on some setups). */
+    document.addEventListener('click', onDocClickCloseAttackMenus, { capture: false, signal: acSig });
+    document.addEventListener('keydown', onKeyEscapeCloseAttackMenus, { capture: true, signal: acSig });
     if (!window.__risqueInstantCampaignClickBound) {
       window.__risqueInstantCampaignClickBound = true;
       document.addEventListener('click', function risqueInstantCampaignDocumentClick(e) {
@@ -5731,11 +5937,11 @@ function initAttackPhase(mountEpoch) {
         onControlVoiceInstantCampaignClick(e);
       });
     }
-    elements.newAttack.addEventListener('click', cancelAttack);
-    elements.reinforce.addEventListener('click', goToReinforce);
-    elements.aerialAttack.addEventListener('click', startAerialAttack);
+    elements.newAttack.addEventListener('click', cancelAttack, { signal: acSig });
+    elements.reinforce.addEventListener('click', goToReinforce, { signal: acSig });
+    elements.aerialAttack.addEventListener('click', startAerialAttack, { signal: acSig });
     if (elements.aerialAttack2) {
-      elements.aerialAttack2.addEventListener('click', startAerialAttack);
+      elements.aerialAttack2.addEventListener('click', startAerialAttack, { signal: acSig });
     }
 
     if (window.gameState.attackPhase === 'pending_transfer') {
@@ -5791,13 +5997,288 @@ function initAttackPhase(mountEpoch) {
 
 window.initAttackPhase = initAttackPhase;
 
+/**
+ * Attack phase runtime mount for game.html ?phase=attack (game-shell calls risquePhases.attack.mount).
+ * Builds #ui-svg + HUD or legacy overlay, then runs initAttackPhase.
+ */
+(function () {
+  "use strict";
+
+  /** Matches js/game-shell / core conquest-chain list — never stomp these with phase "attack". */
+  function risquePhaseIsContinentalConquestChain(phase) {
+    var ph = String(phase || "");
+    return (
+      ph === "conquer" ||
+      ph === "con-cardtransfer" ||
+      ph === "con-cardplay" ||
+      ph === "con-income" ||
+      ph === "con-deploy" ||
+      ph === "con-transfertroops" ||
+      ph === "con-receivecard"
+    );
+  }
+
+  function buildAttackUiSvgMarkup() {
+    /* Bridge art only — never steal clicks from #canvas .svg-overlay (z-index stacks ui-svg above markers). */
+    return (
+      '<g pointer-events="none">' +
+        '<g id="aerial-bridge-group" pointer-events="none"></g>' +
+      '</g>'
+    );
+  }
+
+  function mount(stageHost, opts) {
+    opts = opts || {};
+    var uiOverlay = document.getElementById("ui-overlay");
+    var canvas = document.getElementById("canvas");
+    if (!uiOverlay || !canvas || !window.gameUtils) return;
+
+    if (typeof window.risqueDismissAttackPrompt === "function") window.risqueDismissAttackPrompt();
+    var stalePrompt = document.getElementById("prompt");
+    if (stalePrompt && stalePrompt.parentNode) stalePrompt.parentNode.removeChild(stalePrompt);
+
+    /* Full prepare wipes campaign DOM + attack.js memory — correct when entering attack from deploy/etc.,
+     * but same-document attack→attack remounts (duplicate soft-nav) would destroy an in-progress campaign.
+     * game-shell sets __risqueAttackMountFromPhase only for soft-nav; undefined ⇒ run prepare (fresh load…). */
+    var skipCampaignPrepare = window.__risqueAttackMountFromPhase === "attack";
+    try {
+      delete window.__risqueAttackMountFromPhase;
+    } catch (eDelApm) {
+      /* ignore */
+    }
+    if (!skipCampaignPrepare && typeof window.risquePrepareAttackPhaseShellMount === "function") {
+      try {
+        window.risquePrepareAttackPhaseShellMount(window.gameState);
+      } catch (ePrep) {
+        /* ignore */
+      }
+    }
+
+    // Fresh init each mount; epoch drops stale async init callbacks from a previous mount.
+    window.__risqueAttackMountEpoch = (window.__risqueAttackMountEpoch || 0) + 1;
+    var attackMountEpoch = window.__risqueAttackMountEpoch;
+    window.__risqueAttackInitialized = false;
+    /* Reinforce (and other phases) overwrite window.handleTerritoryClick; restore attack routing every mount. */
+    window.handleTerritoryClick =
+      typeof window.risqueAttackPhaseTerritoryClick === "function"
+        ? window.risqueAttackPhaseTerritoryClick
+        : window.handleTerritoryClick || null;
+
+    var oldUiSvg = document.getElementById("ui-svg");
+    if (oldUiSvg && oldUiSvg.parentNode) oldUiSvg.parentNode.removeChild(oldUiSvg);
+
+    var uiSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    uiSvg.setAttribute("id", "ui-svg");
+    uiSvg.setAttribute("width", "1920");
+    uiSvg.setAttribute("height", "1080");
+    uiSvg.setAttribute("viewBox", "0 0 1920 1080");
+    uiSvg.style.position = "absolute";
+    uiSvg.style.top = "0";
+    uiSvg.style.left = "0";
+    uiSvg.style.zIndex = "3";
+    uiSvg.style.pointerEvents = "none";
+    uiSvg.innerHTML = buildAttackUiSvgMarkup();
+    canvas.appendChild(uiSvg);
+
+    uiOverlay.classList.add("visible");
+    uiOverlay.classList.remove("fade-out");
+    if (window.risqueRuntimeHud) {
+      window.risqueRuntimeHud.ensure(uiOverlay);
+      window.risqueRuntimeHud.clearPhaseSlot();
+      window.risqueRuntimeHud.setAttackChromeInteractive(true);
+      requestAnimationFrame(function () {
+        if (typeof window.risqueSyncAttackPhaseActionLocks === "function") {
+          try {
+            window.risqueSyncAttackPhaseActionLocks();
+          } catch (eAtkLock) {
+            /* ignore */
+          }
+        }
+      });
+      if (window.gameState) {
+        window.risqueRuntimeHud.updateTurnBannerFromState(window.gameState);
+        if (typeof window.risqueRuntimeHud.setControlVoiceText === "function") {
+          var cp = window.gameState.currentPlayer || "Player";
+          window.risqueRuntimeHud.setControlVoiceText(
+            String(cp).toUpperCase() + " — ATTACK",
+            "Select a territory to attack from.",
+            { force: true }
+          );
+        }
+      }
+      requestAnimationFrame(function () {
+        window.risqueRuntimeHud.syncPosition();
+      });
+    } else {
+      uiOverlay.innerHTML =
+        '<div class="attack-player-name" id="attack-player-name"></div>' +
+        '<div class="attack-control-panel unified-attack-panel">' +
+          '<div class="attack-dice-columns">' +
+            '<div class="attack-dice-col attack-dice-col--attacker">' +
+              '<div class="attack-dice-label-row">' +
+              '<div class="attack-dice-row">' +
+                '<div id="attacker-dice-0" class="attack-die attack-die-atk"><span id="attacker-dice-text-0">-</span></div>' +
+                '<div id="attacker-dice-1" class="attack-die attack-die-atk"><span id="attacker-dice-text-1">-</span></div>' +
+                '<div id="attacker-dice-2" class="attack-die attack-die-atk"><span id="attacker-dice-text-2">-</span></div>' +
+              '</div>' +
+              '<span class="attack-dice-column-label attack-dice-column-label--player" id="attacker-panel-name">—</span>' +
+              '</div>' +
+            '</div>' +
+            '<div class="attack-dice-col attack-dice-col--defender">' +
+              '<div class="attack-dice-label-row">' +
+              '<div class="attack-dice-row">' +
+                '<div id="defender-dice-0" class="attack-die attack-die-def"><span id="defender-dice-text-0">-</span></div>' +
+                '<div id="defender-dice-1" class="attack-die attack-die-def"><span id="defender-dice-text-1">-</span></div>' +
+              '</div>' +
+              '<span class="attack-dice-column-label attack-dice-column-label--player" id="defender-panel-name">—</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div id="attack-toolbar-strip" class="ucp-slot-strip attack-toolbar-strip" aria-label="Attack controls">' +
+            '<div class="ucp-slot-strip-main">' +
+            '<div class="ucp-slot-strip-buttons">' +
+            '<button id="roll" class="attack-ctl-btn attack-ctl-roll" type="button" title="Single roll">ROLL</button>' +
+            '<div class="attack-blitz-wrap">' +
+            '<button id="blitz" class="attack-ctl-btn attack-ctl-blitz" type="button" title="Open blitz options" aria-expanded="false" aria-haspopup="true">BLITZ ▾</button>' +
+            '<div id="blitz-dropdown" class="attack-blitz-dropdown attack-blitz-dropdown--flyout" role="menu" hidden>' +
+            '<div class="attack-menu-row attack-menu-row--tall">' +
+            '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--instant" aria-haspopup="true" aria-expanded="false" title="Instant blitz options">INSTANT</button>' +
+            '<div class="attack-menu-flyout" role="menu">' +
+            '<button type="button" class="attack-menu-flyout-item" data-blitz-mode="instant-cond" role="menuitem">Instant / COND</button>' +
+            '</div></div>' +
+            '<div class="attack-menu-row attack-menu-row--tall">' +
+            '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--pause" aria-haspopup="true" aria-expanded="false" title="Blitz Step">BLITZ STEP</button>' +
+            '<div class="attack-menu-flyout" role="menu">' +
+            '<button type="button" class="attack-menu-flyout-item" data-blitz-mode="pause-cond" role="menuitem">Blitz Step Con</button>' +
+            '</div></div></div>' +
+            '<button id="pausable-blitz" class="attack-ctl-btn attack-ctl-pausable" type="button" title="Legacy pause control" style="display:none" hidden aria-hidden="true"><span id="pausable-blitz-text">PBLZ</span></button>' +
+            '</div>' +
+            '<div class="attack-campaign-wrap">' +
+            '<button id="campaign" class="attack-ctl-btn attack-ctl-campaign" type="button" title="Open campaign options" aria-expanded="false" aria-haspopup="true">CAMPAIGN ▾</button>' +
+            '<div id="campaign-dropdown" class="attack-campaign-dropdown attack-campaign-dropdown--flyout" role="menu" hidden>' +
+            '<div class="attack-menu-row attack-menu-row--tall">' +
+            '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--instant" aria-haspopup="true" aria-expanded="false" title="Campaign instant options">INSTANT</button>' +
+            '<div class="attack-menu-flyout attack-menu-flyout--campaign" role="menu">' +
+            '<button type="button" class="attack-menu-flyout-item" data-campaign-mode="instant-cond" role="menuitem">Instant / COND</button>' +
+            '</div></div>' +
+            '<div class="attack-menu-row attack-menu-row--tall">' +
+            '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--pause" aria-haspopup="true" aria-expanded="false" title="Campaign Step">CAMPAIGN STEP</button>' +
+            '<div class="attack-menu-flyout attack-menu-flyout--campaign" role="menu">' +
+            '<button type="button" class="attack-menu-flyout-item" data-campaign-mode="pause-cond" role="menuitem">Campaign Step with conditions</button>' +
+            '</div></div></div>' +
+            '</div>' +
+            '<button id="new-attack" class="attack-ctl-btn attack-ctl-new" type="button" title="Cancel all attacks">CLEAR</button>' +
+            '<button id="reinforce" class="attack-ctl-btn attack-ctl-reinforce" type="button" title="Reinforcement phase">REINFORCE</button>' +
+            '<div id="aerial-attack-group">' +
+              '<button id="aerial-attack" class="attack-ctl-btn attack-ctl-aerial" type="button" title="First aerial bridge (wildcard)">AERIAL</button>' +
+              '<button id="aerial-attack-2" class="attack-ctl-btn attack-ctl-aerial" type="button" title="Second aerial bridge (wildcard)">AERIAL</button>' +
+            '</div>' +
+            '</div>' +
+            '<div class="attack-step-ctl-wrap" id="attack-step-ctl-wrap" hidden aria-label="Blitz Step and Campaign Step">' +
+            '<button type="button" id="attack-step-pause-btn" class="attack-ctl-btn attack-ctl-step-pause" title="Pause or resume">PAUSE</button>' +
+            '<button type="button" id="attack-step-cancel-btn" class="attack-ctl-btn attack-ctl-step-cancel" title="Cancel and return to territory selection">CANCEL</button>' +
+            '</div>' +
+            '<div class="ucp-slot-strip-num-wrap">' +
+            '<input id="cond-threshold" class="ucp-slot-strip-number" type="number" min="0" value="0" title="Stop blitz when your troops on the attacking territory reach this number (0 = default 5)" aria-label="Conditional blitz stop-at troop count on attacker" />' +
+            '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div id="control-voice" class="ucp-terminal ucp-control-voice" aria-live="polite">' +
+            '<div id="control-voice-extras"></div>' +
+            '<div class="ucp-voice-body">' +
+            '<div id="risque-condition-tally" class="risque-condition-tally risque-condition-tally--in-voice" hidden aria-live="off" aria-label="Conditional stop countdown">' +
+            '<div class="risque-condition-tally__num" id="risque-condition-tally-num">0</div>' +
+            '<div class="risque-condition-tally__label">until condition is met</div>' +
+            '</div>' +
+            '<div class="ucp-voice-messages">' +
+            '<div id="control-voice-text" class="ucp-voice-text"></div>' +
+            '<div id="control-voice-report" class="ucp-voice-report"></div>' +
+            '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div id="ucp-slot-strip" class="ucp-slot-strip">' +
+            '<div class="ucp-slot-strip-main">' +
+            '<div class="ucp-slot-strip-buttons">' +
+              '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-0" disabled title="" aria-label="Action slot 1"></button>' +
+              '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-1" disabled title="" aria-label="Action slot 2"></button>' +
+              '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-2" disabled title="" aria-label="Action slot 3"></button>' +
+              '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-3" disabled title="" aria-label="Action slot 4"></button>' +
+              '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-4" disabled title="" aria-label="Action slot 5"></button>' +
+              '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-5" disabled title="" aria-label="Action slot 6"></button>' +
+            '</div>' +
+            '<div class="ucp-slot-strip-num-wrap">' +
+              '<label id="ucp-voice-number-label" class="ucp-slot-strip-label" for="troops-input">Amount</label>' +
+              '<input type="number" id="troops-input" class="ucp-slot-strip-number" disabled value="" title="Amount" />' +
+            '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div id="log-text" class="ucp-terminal ucp-combat-log" aria-live="polite"></div>' +
+        '</div>';
+    }
+
+    /* Host only: public TV shares localStorage; writing here overwrote the host save (e.g. conquer) while mirror lagged. */
+    if (
+      window.gameState &&
+      !window.risqueDisplayIsPublic &&
+      !risquePhaseIsContinentalConquestChain(window.gameState.phase)
+    ) {
+      window.gameState.phase = "attack";
+      if (typeof window.risquePersistHostGameState === "function") {
+        window.risquePersistHostGameState(window.gameState);
+      } else {
+        try {
+          localStorage.setItem("gameState", JSON.stringify(window.gameState));
+        } catch (e) {
+          /* ignore */
+        }
+      }
+    }
+
+    try {
+      if (window.location.protocol !== "file:") {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get("phase") !== "attack") {
+          params.set("phase", "attack");
+          var qs = params.toString();
+          var newUrl = window.location.pathname + (qs ? "?" + qs : "") + window.location.hash;
+          window.history.replaceState(null, "", newUrl);
+        }
+      }
+    } catch (e) {
+      /* ignore */
+    }
+
+    if (
+      window.gameState &&
+      !window.risqueDisplayIsPublic &&
+      window.gameUtils &&
+      typeof window.gameUtils.captureRisqueConquestAttackEntryContinentsIfNeeded === "function"
+    ) {
+      window.gameUtils.captureRisqueConquestAttackEntryContinentsIfNeeded(window.gameState);
+    }
+
+    if (typeof window.initAttackPhase === "function") {
+      window.initAttackPhase(attackMountEpoch);
+    }
+
+    requestAnimationFrame(function () {
+      window.gameUtils.resizeCanvas();
+      window.gameUtils.renderTerritories(null, window.gameState);
+      window.gameUtils.renderStats(window.gameState);
+    });
+  }
+
+  window.risquePhases = window.risquePhases || {};
+  window.risquePhases.attack = { mount: mount };
+})();
+
 /** True while campaign path planning is active (attack.js). Used by runtime HUD to avoid clobbering innerHTML voice. */
 window.risqueIsAttackCampaignActive = function () {
   return campaignMode != null;
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-  /* game.html uses initAttackPhase from phases/attack-phase.js on mount only */
+  /* game.html uses risquePhases.attack.mount → initAttackPhase; attack.html bookmark calls initAttackPhase directly */
   var path = ((window.location.pathname || '').replace(/\\/g, '/')).toLowerCase();
   if (path.endsWith('/attack.html')) {
     initAttackPhase();

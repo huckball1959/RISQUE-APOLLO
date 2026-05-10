@@ -52,10 +52,8 @@ This can block attack clicks later because attack code early-returns when pendin
 - `game.html` - runtime shell page and script loading
 - `js/game-shell.js` - routing/render shell logic across phases
 - `js/core.js` - shared rendering/state load/validation/sanitization
-- `phases/attack.js` - attack logic (rolls/blitzes/transfer/prompts/selection)
-- `phases/reinforce.js` - reinforcement logic + live preview behaviors
-- `phases/attack-phase.js` - attack UI mount markup
-- `phases/reinforce-phase.js` - reinforce mount
+- `phases/attack.js` - attack logic + `risquePhases.attack.mount` (HUD / legacy DOM shell → `initAttackPhase`)
+- `phases/reinforce.js` - reinforcement logic + `risquePhases.reinforce.mount` → `initReinforcePhase`
 - `phases/cardplay.js` - cardplay interactions and card normalization
 - `phases/login.js` - runtime login overlay and load game flow
 

@@ -1,6 +1,5 @@
 /**
- * Income phase — mounted on game.html when ?phase=income (canonical).
- * Standalone pages income.html / in-come.html removed; use this module only.
+ * Income phase — classic `?phase=income` and conquer-mode `?phase=con-income` (opts.conquerIncome).
  */
 (function () {
   "use strict";
@@ -9,6 +8,22 @@
 
   function loginRecoveryHref() {
     return window.risqueLoginRecoveryViaPrivacyUrl();
+  }
+
+  /** Prefer same-document game.html navigation (no full reload); fallback fade or location. */
+  function navigateGameHtmlPreferSoft(url) {
+    try {
+      if (typeof window.risqueNavigateGameHtmlSoft === "function" && window.risqueNavigateGameHtmlSoft(url)) {
+        return;
+      }
+    } catch (eNav) {
+      /* ignore */
+    }
+    if (window.risqueNavigateWithFade) {
+      window.risqueNavigateWithFade(url);
+    } else {
+      window.location.href = url;
+    }
   }
 
   function injectStyles() {
@@ -39,8 +54,64 @@
     document.head.appendChild(s);
   }
 
+  function unstashHostUiOverlayFromConPhases() {
+    var ids = ["risque-ui-overlay-stashed-con-cardplay", "risque-ui-overlay-stashed-con-income"];
+    var i;
+    for (i = 0; i < ids.length; i++) {
+      var u = document.getElementById(ids[i]);
+      if (!u) continue;
+      var prev =
+        (u.dataset && u.dataset.risqueConCardplayPrevId) ||
+        (u.dataset && u.dataset.risqueConIncomePrevId) ||
+        "ui-overlay";
+      u.id = prev;
+      try {
+        delete u.dataset.risqueConCardplayStash;
+        delete u.dataset.risqueConCardplayPrevId;
+        delete u.dataset.risqueConIncomeStash;
+        delete u.dataset.risqueConIncomePrevId;
+      } catch (eDs) {
+        /* ignore */
+      }
+      u.removeAttribute("hidden");
+      u.style.visibility = "";
+    }
+  }
+
+  function conquerIncomeNewCardId() {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+      var r = (Math.random() * 16) | 0;
+      var v = c === "x" ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
+  function computeOwnedContinentsConquer(player, gameState) {
+    var owned = [];
+    var continents = gameState && gameState.continents;
+    if (!continents || !player || !player.territories) return owned;
+    var cont;
+    for (cont in continents) {
+      if (!Object.prototype.hasOwnProperty.call(continents, cont)) continue;
+      var data = continents[cont];
+      if (
+        data &&
+        data.territories &&
+        data.territories.every(function (t) {
+          return player.territories.some(function (pt) {
+            return pt.name === t;
+          });
+        })
+      ) {
+        owned.push(cont);
+      }
+    }
+    return owned;
+  }
+
   function mount(host, opts) {
     opts = opts || {};
+    var conquerIncome = !!opts.conquerIncome;
     var onLog = opts.onLog;
     // Default next step: stay inside JS runtime.
     var legacyNext = opts.legacyNext != null ? opts.legacyNext : "game.html?phase=deploy&kind=turn";
@@ -154,6 +225,476 @@
         primary: primary,
         report: report
       };
+    }
+
+    /** Conquer-mode income (former con-income-phase.js): books + new continents; deploy or attack next. */
+    function conquerIncomeInit() {
+      try {
+        var uiOverlay = document.getElementById("ui-overlay");
+        if (!uiOverlay) {
+          logToStorage("Con-income: ui-overlay not found");
+          window.gameUtils.showError("UI overlay not found");
+          return;
+        }
+        var gameState = window.gameState;
+        try {
+          delete gameState.risquePublicIncomeBreakdown;
+        } catch (eBr0) {
+          /* ignore */
+        }
+        if (!gameState || !gameState.players || !gameState.currentPlayer || !gameState.continentCollectionCounts) {
+          logToStorage("Invalid game state (con-income)");
+          window.gameUtils.showError("Invalid game state. Redirecting to launch.");
+          setTimeout(function () {
+            navigateGameHtmlPreferSoft(loginRecoveryHref());
+          }, 2000);
+          return;
+        }
+        var currentPlayer = gameState.players.find(function (p) {
+          return (
+            p &&
+            String(p.name || "").toUpperCase() === String(gameState.currentPlayer || "").toUpperCase()
+          );
+        });
+        if (!currentPlayer) {
+          logToStorage("Current player not found (con-income)");
+          window.gameUtils.showError("Current player not found. Redirecting to launch.");
+          setTimeout(function () {
+            navigateGameHtmlPreferSoft(loginRecoveryHref());
+          }, 2000);
+          return;
+        }
+        if (typeof window.gameUtils.getRisqueConquestAttackStartBaselineList === "function") {
+          var baselineRestore = window.gameUtils.getRisqueConquestAttackStartBaselineList(gameState);
+          if (baselineRestore.length) {
+            var btk =
+              (Number(gameState.round) || 1) + "|" + String(gameState.currentPlayer || "");
+            gameState.risqueConquestAttackEntryTurnKey = btk;
+            gameState.risqueConquestAttackEntryContinents = baselineRestore.slice();
+          }
+        }
+        if (typeof window.gameUtils.computePendingNewContinentsForConquest === "function") {
+          var recomputed = window.gameUtils.computePendingNewContinentsForConquest(gameState);
+          var prevPending = gameState.pendingNewContinents;
+          if (recomputed && recomputed.length > 0) {
+            gameState.pendingNewContinents = recomputed;
+          } else if (Array.isArray(prevPending) && prevPending.length > 0) {
+            gameState.pendingNewContinents = prevPending;
+          } else {
+            gameState.pendingNewContinents = recomputed || [];
+          }
+          gameState.pendingNewContinents = window.gameUtils.computePendingNewContinentsForConquest(gameState);
+          if (typeof window.gameUtils.filterConIncomePendingContinentsArray === "function") {
+            gameState.pendingNewContinents = window.gameUtils.filterConIncomePendingContinentsArray(gameState);
+          }
+        }
+        if (!Object.keys(gameState.continentsSnapshot || {}).length) {
+          logToStorage("WARNING: continentsSnapshot empty (con-income)", {
+            phase: gameState.phase,
+            currentPlayer: gameState.currentPlayer
+          });
+        }
+        currentPlayer.bankValue = currentPlayer.bankValue || 0;
+        var playerColor = window.gameUtils.colorMap[currentPlayer.color] || "#ffffff";
+        var bookCount = currentPlayer.bookValue || 0;
+        var bookBonus = bookCount * 10;
+        var continentBonus = 0;
+        var ownedContinents = computeOwnedContinentsConquer(currentPlayer, gameState);
+        var snapshot = gameState.continentsSnapshot || {};
+        var snapshotOwned = Object.keys(snapshot).filter(function (key) {
+          return snapshot[key];
+        });
+        var pendingNew = gameState.pendingNewContinents || [];
+        var attackEntryContinents =
+          typeof window.gameUtils.getRisqueConquestAttackStartBaselineList === "function"
+            ? window.gameUtils.getRisqueConquestAttackStartBaselineList(gameState)
+            : gameState.risqueConquestAttackEntryContinents || [];
+        logToStorage("Con-income continent trace", {
+          snapshotOwned: snapshotOwned,
+          turnStartKeys: Object.keys(gameState.risqueTurnStartContinentsSnapshot || {}),
+          ownedContinents: ownedContinents,
+          pendingNew: pendingNew,
+          collectionCounts: gameState.continentCollectionCounts,
+          baselineLocked: !!gameState.risqueConquestIncomeBaselineLocked,
+          attackEntryContinents: attackEntryContinents,
+          chainActive: !!gameState.risqueConquestChainActive,
+          runtimeIncomeMode: gameState.risqueRuntimeCardplayIncomeMode || ""
+        });
+        var continentDetails = "";
+        var continentRowsForMirror = [];
+        var cdn = window.gameUtils && window.gameUtils.continentDisplayNames;
+        pendingNew.forEach(function (key) {
+          if (
+            window.gameUtils &&
+            typeof window.gameUtils.shouldSkipConIncomeBaselineContinent === "function" &&
+            window.gameUtils.shouldSkipConIncomeBaselineContinent(gameState, key)
+          ) {
+            logToStorage("Con-income skip pending continent (baseline)", { key: key });
+            return;
+          }
+          var collectionCount = gameState.continentCollectionCounts[key] || 0;
+          var bonus =
+            typeof window.gameUtils.getContinentConquestIncomeValue === "function"
+              ? window.gameUtils.getContinentConquestIncomeValue(gameState, key)
+              : window.gameUtils.getNextContinentValue(key, collectionCount);
+          continentBonus += bonus;
+          continentDetails +=
+            key.toUpperCase() + "(collections=" + collectionCount + ")(next rung)=" + bonus + ", ";
+          logToStorage("New continent bonus: " + key, { collections: collectionCount, bonus: bonus });
+          var disp = (cdn && cdn[key]) || String(key);
+          var nm = String(disp)
+            .replace("South America", "S. America")
+            .replace("North America", "N. America");
+          continentRowsForMirror.push({ name: nm, bonus: bonus });
+        });
+        continentDetails = continentDetails.slice(0, -2) || "NONE";
+        var territoryCount = (currentPlayer.territories || []).length;
+        var territoryBonusRow = 0;
+        var skipTerritoryRow = true;
+        var continentBonusHeld = 0;
+        var useStandardHeldSupplement =
+          pendingNew.length === 0 &&
+          territoryCount > 0 &&
+          window.gameUtils &&
+          typeof window.gameUtils.getPlayerContinents === "function" &&
+          typeof window.gameUtils.getNextContinentValue === "function";
+        var skipHeldContinentFromPreAttackBaseline = true;
+
+        if (useStandardHeldSupplement) {
+          territoryBonusRow = Math.max(Math.floor(territoryCount / 3), 3);
+          skipTerritoryRow = false;
+          var heldDisplay = window.gameUtils.getPlayerContinents(currentPlayer);
+          var hi;
+          for (hi = 0; hi < heldDisplay.length; hi++) {
+            var cNm = heldDisplay[hi];
+            var cKey = null;
+            var dn = window.gameUtils.continentDisplayNames;
+            if (dn && typeof dn === "object") {
+              for (var k0 in dn) {
+                if (!Object.prototype.hasOwnProperty.call(dn, k0)) continue;
+                if (dn[k0] === cNm) {
+                  cKey = k0;
+                  break;
+                }
+              }
+            }
+            if (cKey == null) continue;
+            if (
+              skipHeldContinentFromPreAttackBaseline &&
+              window.gameUtils &&
+              typeof window.gameUtils.shouldSkipConIncomeBaselineContinent === "function" &&
+              window.gameUtils.shouldSkipConIncomeBaselineContinent(gameState, cKey)
+            ) {
+              continue;
+            }
+            var cVal = window.gameUtils.getNextContinentValue(cKey, gameState.continentCollectionCounts[cKey] || 0);
+            if (cVal > 0) {
+              continentBonusHeld += cVal;
+              var dispH = (cdn && cdn[cKey]) || String(cKey);
+              var nmH = String(dispH)
+                .replace("South America", "S. America")
+                .replace("North America", "N. America");
+              continentRowsForMirror.push({ name: nmH, bonus: cVal });
+            }
+          }
+          logToStorage("Con-income standard territory + held continents", {
+            territoryCount: territoryCount,
+            territoryBonusRow: territoryBonusRow,
+            continentBonusHeld: continentBonusHeld,
+            bookBonus: bookBonus,
+            continentBonusNew: continentBonus
+          });
+        }
+
+        var total = bookBonus + continentBonus + territoryBonusRow + continentBonusHeld;
+
+        if (!useStandardHeldSupplement && total < 1 && territoryCount > 0) {
+          territoryBonusRow = Math.max(Math.floor(territoryCount / 3), 3);
+          total = bookBonus + continentBonus + territoryBonusRow;
+          skipTerritoryRow = false;
+          logToStorage("Con-income territory fallback applied", {
+            territoryCount: territoryCount,
+            territoryBonusRow: territoryBonusRow,
+            bookBonus: bookBonus,
+            continentBonus: continentBonus
+          });
+        }
+
+        var continentSubhead =
+          pendingNew.length > 0
+            ? "New continents"
+            : useStandardHeldSupplement && continentRowsForMirror.length > 0
+              ? "Continents held"
+              : "New continents";
+        gameState.risquePublicIncomeBreakdown = {
+          skipTerritoryRow: skipTerritoryRow,
+          territoryCount: territoryCount,
+          territoryBonus: territoryBonusRow,
+          continentSubhead: continentSubhead,
+          showBook: bookBonus > 0,
+          bookCount: bookCount,
+          bookBonus: bookBonus,
+          continentRows: continentRowsForMirror,
+          total: total
+        };
+        try {
+          localStorage.setItem("gameState", JSON.stringify(gameState));
+        } catch (eBr) {
+          /* ignore */
+        }
+
+        var hostUiOverlay = document.getElementById("ui-overlay");
+        var useHud = !!(window.risqueRuntimeHud && !window.risqueDisplayIsPublic && hostUiOverlay);
+        if (useHud) {
+          try {
+            window.risqueRuntimeHud.ensure(hostUiOverlay);
+            window.risqueRuntimeHud.clearPhaseSlot();
+            window.risqueRuntimeHud.setAttackChromeInteractive(false);
+            window.risqueRuntimeHud.updateTurnBannerFromState(gameState);
+          } catch (eHud) {
+            logToStorage("Runtime HUD prep failed (con-income)", {
+              error: eHud && eHud.message ? eHud.message : String(eHud)
+            });
+          }
+          try {
+            window.gameState.risqueControlVoice = {
+              primary: (String(currentPlayer.name || "Player") + " · CONQUER MODE · INCOME").toUpperCase(),
+              report: ("TOTAL INCOME " + total).toUpperCase(),
+              reportClass: "ucp-voice-report ucp-voice-report--public-income"
+            };
+          } catch (eCv0) {
+            /* ignore */
+          }
+        }
+        function applyHostConIncomeGrid() {
+          if (!gameState || !gameState.risquePublicIncomeBreakdown) return;
+          if (window.risqueDisplayIsPublic) return;
+          if (typeof window.risqueHostApplyIncomeBreakdownVoice === "function") {
+            window.risqueHostApplyIncomeBreakdownVoice(gameState);
+          }
+        }
+        applyHostConIncomeGrid();
+        requestAnimationFrame(function () {
+          applyHostConIncomeGrid();
+          if (typeof window.risqueMirrorPushGameState === "function") {
+            window.risqueMirrorPushGameState();
+          }
+        });
+        setTimeout(function () {
+          applyHostConIncomeGrid();
+          if (typeof window.risqueMirrorPushGameState === "function") {
+            window.risqueMirrorPushGameState();
+          }
+        }, 120);
+
+        var handleConfirm = function () {
+          logToStorage("Con-income confirm clicked");
+          try {
+            delete gameState.risquePublicIncomeBreakdown;
+          } catch (eDelBr) {
+            /* ignore */
+          }
+          logToStorage("Game state before update (con-income)", {
+            phase: gameState.phase,
+            bankValue: currentPlayer.bankValue,
+            troopsTotal: currentPlayer.troopsTotal
+          });
+          var terrTroopSum = currentPlayer.territories.reduce(function (sum, t) {
+            return sum + (Number(t.troops) || 0);
+          }, 0);
+          currentPlayer.bankValue = total;
+          currentPlayer.troopsTotal = terrTroopSum + total;
+          currentPlayer.bookValue = 0;
+          var pendingKeys = (gameState.pendingNewContinents || []).slice();
+          pendingKeys.forEach(function (key) {
+            gameState.continentCollectionCounts[key] = (gameState.continentCollectionCounts[key] || 0) + 1;
+          });
+          var paidAcc = gameState.risqueConquestChainPaidContinents || [];
+          pendingKeys.forEach(function (key) {
+            if (paidAcc.indexOf(key) === -1) paidAcc.push(key);
+          });
+          gameState.risqueConquestChainPaidContinents = paidAcc;
+          logToStorage("Incremented continent counts (con-income)", {
+            updatedCounts: gameState.continentCollectionCounts
+          });
+          gameState.pendingNewContinents = [];
+          var oweConquestDeck =
+            !gameState.cardAwardedThisTurn &&
+            !!(gameState.risqueCombatDeckPending || gameState.cardplayConquered || gameState.risqueEliminationDeckOwed);
+          var deferElimDeckToReceiveCard = !!gameState.risqueEliminationDeckOwed;
+          if (oweConquestDeck && !deferElimDeckToReceiveCard) {
+            var deck = gameState.deck;
+            if (deck && deck.length > 0) {
+              var raw = deck.shift();
+              var cardName =
+                typeof raw === "string" ? raw : raw && raw.name ? String(raw.name) : "";
+              if (cardName) {
+                currentPlayer.cards.push({ name: cardName, id: conquerIncomeNewCardId() });
+                currentPlayer.cardCount = currentPlayer.cards.length;
+                gameState.cardAwardedThisTurn = true;
+                logToStorage("Card awarded for conquest (con-income)", {
+                  player: currentPlayer.name,
+                  card: cardName,
+                  fromCombatPending: !!gameState.risqueCombatDeckPending
+                });
+              }
+            } else {
+              gameState.cardAwardedThisTurn = true;
+            }
+          }
+          gameState.cardplayConquered = false;
+          if (!deferElimDeckToReceiveCard) {
+            gameState.risqueCombatDeckPending = false;
+            gameState.risqueEliminationDeckOwed = false;
+          }
+          uiOverlay.classList.add("fade-out");
+          if (currentPlayer.bankValue <= 0) {
+            gameState.phase = "attack";
+            try {
+              localStorage.setItem("gameState", JSON.stringify(gameState));
+            } catch (e1) {
+              /* ignore */
+            }
+            if (typeof window.risqueHostReplaceShellGameState === "function") {
+              window.risqueHostReplaceShellGameState(gameState);
+            }
+            if (typeof window.risqueMirrorPushGameState === "function") {
+              window.risqueMirrorPushGameState();
+            }
+            logToStorage("Con-income zero bank → attack", { phase: gameState.phase });
+            window.gameUtils.showError("No troops available to deploy. Returning to attack.");
+            setTimeout(function () {
+              navigateGameHtmlPreferSoft("game.html?phase=attack");
+            }, 2000);
+          } else {
+            if (gameState.phase === "deploy") {
+              logToStorage("Warning: phase already deploy (con-income)", { phase: gameState.phase });
+            }
+            gameState.phase = "deploy";
+            try {
+              localStorage.setItem("gameState", JSON.stringify(sanitizeGameState(gameState)));
+            } catch (e2) {
+              /* ignore */
+            }
+            if (typeof window.risqueHostReplaceShellGameState === "function") {
+              window.risqueHostReplaceShellGameState(gameState);
+            }
+            if (typeof window.risqueMirrorPushGameState === "function") {
+              window.risqueMirrorPushGameState();
+            }
+            logToStorage("Con-income → deploy (conquest)", { bankValue: currentPlayer.bankValue });
+            setTimeout(function () {
+              navigateGameHtmlPreferSoft(
+                "game.html?phase=deploy&kind=turn&conquestAfterDeploy=1"
+              );
+            }, 2000);
+          }
+        };
+
+        var confirmButton = null;
+        if (useHud) {
+          var legacyShell = document.getElementById("risque-con-income-legacy");
+          if (legacyShell) legacyShell.style.display = "none";
+          /* Do not set uiOverlay.innerHTML — it removes #runtime-hud-root and #risque-phase-content; classic income keeps the HUD shell and only fills the phase slot. */
+          try {
+            window.risqueRuntimeHud.ensure(uiOverlay);
+            window.risqueRuntimeHud.clearPhaseSlot();
+          } catch (eHudSlot) {
+            /* ignore */
+          }
+          uiOverlay.classList.add("visible");
+          var incSlot = document.getElementById("risque-phase-content");
+          if (incSlot) {
+            incSlot.innerHTML = "";
+            var incStack = document.createElement("div");
+            incStack.className = "income-hud-phase-stack";
+            var incBtn = document.createElement("button");
+            incBtn.type = "button";
+            incBtn.className = "income-button visible income-button--hud income-button--hud-solo";
+            incBtn.textContent = "Continue";
+            incStack.appendChild(incBtn);
+            incSlot.appendChild(incStack);
+            confirmButton = incBtn;
+          }
+          requestAnimationFrame(function () {
+            if (window.risqueRuntimeHud && window.risqueRuntimeHud.syncPosition) {
+              window.risqueRuntimeHud.syncPosition();
+            }
+          });
+          logToStorage("Con-income HUD path mounted", { total: total });
+        } else {
+          var scale = window.innerWidth / 1920;
+          var trTerritoryLegacy =
+            !skipTerritoryRow && territoryBonusRow > 0
+              ? "<tr><td>TERRITORY</td><td>TERRITORY COUNT: " +
+                territoryCount +
+                "</td><td>BONUS: " +
+                territoryBonusRow +
+                "</td></tr>"
+              : "";
+          var continentValLegacy = continentBonus + continentBonusHeld;
+          var continentDetailsLegacy = continentDetails;
+          if (useStandardHeldSupplement && continentBonusHeld > 0 && continentDetails === "NONE") {
+            continentDetailsLegacy = "Continents held (standard scaling)";
+          }
+          var incomeContent =
+            '<div class="income-player-name" style="color: ' +
+            playerColor +
+            '">' +
+            currentPlayer.name +
+            "'s Income</div>" +
+            '<div class="income-table-container visible">' +
+            '<table class="income-table">' +
+            "<thead><tr>" +
+            '<th style="width:' +
+            200 * scale +
+            'px">Label</th>' +
+            '<th style="width:' +
+            385.3203125 * scale +
+            'px">Details</th>' +
+            '<th style="width:' +
+            200 * scale +
+            'px">Value</th>' +
+            "</tr></thead><tbody>" +
+            trTerritoryLegacy +
+            "<tr><td>BOOKS</td><td>BOOK COUNT: " +
+            (bookCount === 0 ? "NONE" : bookCount) +
+            "</td><td>BOOK: " +
+            bookBonus +
+            "</td></tr>" +
+            "<tr><td>CONTINENTS</td><td>" +
+            continentDetailsLegacy +
+            "</td><td>CONTINENTS: " +
+            continentValLegacy +
+            "</td></tr>" +
+            "<tr><td></td><td>TOTAL</td><td>" +
+            total +
+            "</td></tr></tbody></table>" +
+            '<button type="button" class="income-button visible">Confirm</button>' +
+            "</div>";
+          uiOverlay.innerHTML = incomeContent;
+          uiOverlay.classList.add("visible");
+          logToStorage("Con-income legacy table mounted", { total: total });
+          confirmButton = uiOverlay.querySelector(".income-button");
+        }
+        if (confirmButton) {
+          confirmButton.addEventListener("click", handleConfirm);
+          confirmButton.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" || e.key === " ") {
+              handleConfirm();
+            }
+          });
+        } else {
+          window.gameUtils.showError("Confirm button not found");
+        }
+        logToStorage("Con-income UI rendering completed");
+      } catch (e) {
+        logToStorage("Failed to initialize con-income", { error: e && e.message ? e.message : String(e) });
+        window.gameUtils.showError("Failed to initialize income phase");
+        setTimeout(function () {
+          navigateGameHtmlPreferSoft(loginRecoveryHref());
+        }, 2000);
+      }
     }
 
     function incomeInit() {
@@ -535,11 +1076,7 @@
               if (typeof dest === "string" && dest.indexOf("deploy2.html") !== -1) {
                 dest = "game.html?phase=deploy&kind=turn";
               }
-              if (window.risqueNavigateWithFade) {
-                window.risqueNavigateWithFade(dest);
-              } else {
-                window.location.href = dest;
-              }
+              navigateGameHtmlPreferSoft(dest);
             }, 0);
           };
           confirmButton.addEventListener("click", handleConfirm);
@@ -551,9 +1088,7 @@
           window.gameUtils.showError("Confirm button not found");
         }
         console.log("[Income] Income UI rendering completed");
-        window.gameUtils.initGameView();
-        window.gameUtils.renderTerritories(null, gameState);
-        window.gameUtils.renderStats(gameState);
+        /* Map/stats: single paint via game-shell refreshVisuals("Income mounted") — avoid double redraw blink */
       } catch (e) {
         console.error("[Income] Failed to initialize:", e.message);
         window.gameUtils.showError("Failed to initialize income phase");
@@ -581,6 +1116,92 @@
     }
 
     ensureContinentCollectionCounts(gameState);
+
+    if (conquerIncome) {
+      try {
+        document.body.classList.remove("risque-con-cardplay-mounted");
+      } catch (eRmCp) {
+        /* ignore */
+      }
+      var ccLegacy = document.getElementById("risque-con-cardplay-legacy");
+      if (ccLegacy && ccLegacy.parentNode) {
+        ccLegacy.parentNode.removeChild(ccLegacy);
+      }
+      unstashHostUiOverlayFromConPhases();
+      document.body.classList.add("risque-con-income-mounted");
+      try {
+        if (window.location.protocol !== "file:") {
+          var paramsCi = new URLSearchParams(window.location.search);
+          if (paramsCi.get("phase") !== "con-income") {
+            paramsCi.set("phase", "con-income");
+            var qsCi = paramsCi.toString();
+            window.history.replaceState(
+              null,
+              "",
+              window.location.pathname + (qsCi ? "?" + qsCi : "") + window.location.hash
+            );
+          }
+        }
+      } catch (eHCi) {
+        /* ignore */
+      }
+      gameState.phase = "con-income";
+      try {
+        localStorage.setItem("gameState", JSON.stringify(gameState));
+      } catch (ePCi) {
+        /* ignore */
+      }
+      if (typeof window.risqueHostReplaceShellGameState === "function") {
+        window.risqueHostReplaceShellGameState(gameState);
+      }
+      if (typeof window.risqueMirrorPushGameState === "function") {
+        window.risqueMirrorPushGameState();
+      }
+      if (typeof onLog === "function") {
+        onLog("Income mount: conquer income ready", {
+          phase: gameState.phase,
+          currentPlayer: gameState.currentPlayer
+        });
+      }
+      conquerIncomeInit();
+      if (!window.risqueDisplayIsPublic) {
+        var uioCi = document.getElementById("ui-overlay");
+        if (uioCi && window.risqueRuntimeHud && typeof window.risqueRuntimeHud.ensure === "function") {
+          try {
+            window.risqueRuntimeHud.ensure(uioCi);
+          } catch (eEnsCi) {
+            /* ignore */
+          }
+        }
+        if (typeof window.risqueRefreshControlVoiceMirror === "function") {
+          try {
+            window.risqueRefreshControlVoiceMirror(gameState);
+          } catch (eCvCi) {
+            /* ignore */
+          }
+          requestAnimationFrame(function () {
+            try {
+              window.risqueRefreshControlVoiceMirror(window.gameState || gameState);
+            } catch (eCvCi2) {
+              /* ignore */
+            }
+          });
+        }
+      }
+      if (window.gameUtils && window.gameUtils.resizeCanvas) {
+        requestAnimationFrame(function () {
+          window.gameUtils.resizeCanvas();
+        });
+      }
+      return;
+    }
+
+    try {
+      document.body.classList.remove("risque-con-income-mounted");
+    } catch (eRmCiBody) {
+      /* ignore */
+    }
+
     applyRoundOneCardCap(gameState);
     logToStorage("Player card counts on load", {
       players: gameState.players.map(function (p) {
@@ -609,5 +1230,12 @@
   }
 
   window.risquePhases = window.risquePhases || {};
-  window.risquePhases.income = { mount: mount };
+  window.risquePhases.income = {
+    mount: mount,
+    runConquerIncome: function (host, opts) {
+      opts = opts || {};
+      opts.conquerIncome = true;
+      mount(host, opts);
+    }
+  };
 })();

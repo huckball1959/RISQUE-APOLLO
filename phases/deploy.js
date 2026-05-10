@@ -1,8 +1,9 @@
 /**
- * Deployment — one module, two behaviors.
+ * Deployment — one module, all deploy behaviors.
  *
  * URL: game.html?phase=deploy&kind=setup — first deployment (all players, starting armies).
  * URL: game.html?phase=deploy&kind=turn — income deploy, then attack.
+ * URL: game.html?phase=con-deploy — continental conquer deploy after con-income (opts.continentalDeploy).
  * Legacy ?phase=deploy1|deploy2 is rewritten to the above by game-shell.js.
  */
 (function () {
@@ -12,6 +13,22 @@
 
   function loginRecoveryHref() {
     return window.risqueLoginRecoveryViaPrivacyUrl();
+  }
+
+  /** Prefer same-document game.html navigation (no full reload); fallback fade or location. */
+  function navigateGameHtmlPreferSoft(url) {
+    try {
+      if (typeof window.risqueNavigateGameHtmlSoft === "function" && window.risqueNavigateGameHtmlSoft(url)) {
+        return;
+      }
+    } catch (eNav) {
+      /* ignore */
+    }
+    if (window.risqueNavigateWithFade) {
+      window.risqueNavigateWithFade(url);
+    } else {
+      window.location.href = url;
+    }
   }
 
   /**
@@ -109,6 +126,9 @@
       logLineSetup("Missing #risque-phase-content (setup HUD not ready)", logFn);
       return;
     }
+
+    var psFromSelect = document.getElementById("risque-player-select-root");
+    if (psFromSelect && psFromSelect.parentNode) psFromSelect.parentNode.removeChild(psFromSelect);
 
     uiOverlay.className = "ui-overlay visible";
     uiOverlay.classList.remove("fade-out");
@@ -601,11 +621,7 @@
               window.risqueSetMirrorDeployRoute(null);
             }
             window.risqueDeploy1Active = false;
-            if (window.risqueNavigateWithFade) {
-              window.risqueNavigateWithFade("game.html?phase=playerSelect&selectKind=cardPlay");
-            } else {
-              window.location.href = "game.html?phase=playerSelect&selectKind=cardPlay";
-            }
+            navigateGameHtmlPreferSoft("game.html?phase=playerSelect&selectKind=cardPlay");
           }, 0);
         } catch (e) {
           console.warn("[Deploy] Failed to save game state.");
@@ -674,23 +690,25 @@
       });
     }
 
-    var svg = document.querySelector(".svg-overlay");
+    var canvasWheel = document.getElementById("canvas");
+    var svg = canvasWheel ? canvasWheel.querySelector(".svg-overlay") : null;
     if (svg) svg.addEventListener("wheel", onWheel, { passive: false });
 
     document.addEventListener("keydown", onKeyDown);
 
     window.gameUtils.initGameView();
+    initializeDeployment();
     requestAnimationFrame(function () {
-      initializeDeployment();
       window.gameUtils.resizeCanvas();
     });
   }
 
-  /** Turn deploy: single player, then attack. */
+  /** Turn deploy: single player, then attack (classic or continental con-deploy when opts.continentalDeploy). */
   function mountTurnDeploy(host, opts) {
     opts = opts || {};
+    var continentalDeploy = !!opts.continentalDeploy;
     var attackUrl = opts.attackUrl || "game.html?phase=attack";
-    var conquestAfterDeployQuery = !!opts.conquestAfterDeploy;
+    var conquestAfterDeployQuery = !!opts.conquestAfterDeploy || continentalDeploy;
     try {
       if (new URLSearchParams(window.location.search || "").get("conquestAfterDeploy") === "1") {
         conquestAfterDeployQuery = true;
@@ -711,7 +729,8 @@
     }
 
     var uiOverlay = document.getElementById("ui-overlay");
-    var stageSvg = document.querySelector(".svg-overlay");
+    var canvasDeploy = document.getElementById("canvas");
+    var stageSvg = canvasDeploy ? canvasDeploy.querySelector(".svg-overlay") : null;
     if (!uiOverlay || !stageSvg) {
       console.warn("[Deploy] Missing ui overlay or svg overlay.");
       return;
@@ -726,7 +745,45 @@
       return;
     }
 
-    if (gameState.round === 1) {
+    if (continentalDeploy) {
+      try {
+        document.body.classList.remove("risque-con-cardplay-mounted");
+        document.body.classList.remove("risque-con-income-mounted");
+      } catch (eCl) {
+        /* ignore */
+      }
+      try {
+        document.body.classList.add("risque-con-deploy-mounted");
+      } catch (eCd) {
+        /* ignore */
+      }
+      if (gameState.phase === "con-income") {
+        gameState.phase = "con-deploy";
+        try {
+          localStorage.setItem("gameState", JSON.stringify(gameState));
+        } catch (ePh) {
+          /* ignore */
+        }
+      }
+      try {
+        if (window.location.protocol !== "file:") {
+          var paramsCd = new URLSearchParams(window.location.search);
+          if (paramsCd.get("phase") !== "con-deploy") {
+            paramsCd.set("phase", "con-deploy");
+            var qsCd = paramsCd.toString();
+            window.history.replaceState(
+              null,
+              "",
+              window.location.pathname + (qsCd ? "?" + qsCd : "") + window.location.hash
+            );
+          }
+        }
+      } catch (eHcd) {
+        /* ignore */
+      }
+    }
+
+    if (!continentalDeploy && gameState.round === 1) {
       gameState.players.forEach(function (player) {
         if (player.cardCount > 1) {
           player.cardCount = 1;
@@ -740,7 +797,7 @@
      * cardplay/income flags. Otherwise stale risqueRuntimeCardplayIncomeMode + risqueConquestChainActive
      * from an old elimination/conquest session force con-income (books + “new” continents only) on the
      * next cardplay even during normal Risk turns.
-     * Conquest deploy always uses ?conquestAfterDeploy=1 (see con-income-phase.js); keep flags until
+     * Conquest deploy always uses ?conquestAfterDeploy=1 (see phases/income.js conquer income); keep flags until
      * con-transfertroops → attack or a later classic deploy clears them.
      */
     if (!conquestAfterDeployQuery && !window.risqueDisplayIsPublic) {
@@ -919,7 +976,7 @@
       window.viewTroopsActive = false;
       deploymentInitialized = true;
 
-      gameState.phase = "deploy";
+      gameState.phase = continentalDeploy ? "con-deploy" : "deploy";
       try {
         localStorage.setItem("gameState", JSON.stringify(gameState));
       } catch (e2) {
@@ -944,6 +1001,11 @@
 
     /** Same idea as setup deploy: after phase leaves deploy, one redraw without bumps / satellites / white fill. */
     function clearTurnDeployChromeThenRedraw() {
+      try {
+        document.body.classList.remove("risque-con-deploy-mounted");
+      } catch (eRmDep) {
+        /* ignore */
+      }
       window.gameState = gameState;
       window.selectedTerritory = null;
       window.viewTroopsActive = false;
@@ -1172,7 +1234,7 @@
         window.risqueRuntimeHud.updateTurnBannerFromState(gameState);
         var dSlot = document.getElementById("risque-phase-content");
         if (dSlot) dSlot.innerHTML = deploySlotHtml;
-        if (gameState.risqueConquestChainActive) {
+        if (gameState.risqueConquestChainActive || continentalDeploy) {
           var rhDep = document.getElementById("runtime-hud-root");
           if (rhDep) rhDep.classList.add("runtime-hud-root--cardplay-panel-only");
         }
@@ -1200,6 +1262,41 @@
 
       if (typeof window.risqueReplaySeedOpening === "function") {
         window.risqueReplaySeedOpening(gameState);
+      }
+
+      if (continentalDeploy && (player.bankValue || 0) === 0) {
+        console.warn("[Deploy] Continental deploy: no troops in bank; routing to attack or transfer.");
+        setTimeout(function () {
+          var gs0 = window.gameState;
+          if (gs0) delete gs0.risqueConquestIncomeBaselineLocked;
+          if (gs0 && typeof window.gameUtils.ensureContinentsSnapshotBaseline === "function") {
+            window.gameUtils.ensureContinentsSnapshotBaseline(gs0);
+          }
+          var needsT =
+            gs0 &&
+            gs0.conqueredThisTurn === true &&
+            gs0.attackingTerritory &&
+            gs0.acquiredTerritory &&
+            (gs0.attackPhase === "pending_transfer" || gs0.risqueConquestChainActive === true);
+          if (needsT) {
+            gs0.phase = "con-transfertroops";
+            gs0.risqueConquestTransferProceedTo = "attack";
+            try {
+              localStorage.setItem("gameState", JSON.stringify(gs0));
+            } catch (e0) {
+              /* ignore */
+            }
+            navigateGameHtmlPreferSoft("game.html?phase=con-transfertroops");
+            return;
+          }
+          try {
+            if (gs0) localStorage.setItem("gameState", JSON.stringify(gs0));
+          } catch (e0b) {
+            /* ignore */
+          }
+          navigateGameHtmlPreferSoft("game.html?phase=attack");
+        }, 2000);
+        return;
       }
 
       initializeDeployment();
@@ -1432,7 +1529,11 @@
       }
 
       window.risqueGetAuxMouseMenu = function () {
-        if (window.risqueDeploy1Active || String(gameState.phase) !== "deploy") {
+        var phDep = String(gameState.phase || "");
+        if (
+          window.risqueDeploy1Active ||
+          (phDep !== "deploy" && phDep !== "con-deploy")
+        ) {
           return null;
         }
         return {
@@ -1482,6 +1583,13 @@
           return;
         }
 
+        if (continentalDeploy) {
+          delete gameState.risqueConquestIncomeBaselineLocked;
+          if (typeof window.gameUtils.ensureContinentsSnapshotBaseline === "function") {
+            window.gameUtils.ensureContinentsSnapshotBaseline(gameState);
+          }
+        }
+
         p.troopsTotal = p.territories.reduce(function (sum, t) {
           return sum + (Number(t.troops) || 0);
         }, 0);
@@ -1511,7 +1619,7 @@
               if (typeof window.risqueSetMirrorDeployRoute === "function") {
                 window.risqueSetMirrorDeployRoute(null);
               }
-              var destT = "con-transfertroops.html";
+              var destT = "game.html?phase=con-transfertroops";
               if (window.risqueNavigateWithFade) {
                 window.risqueNavigateWithFade(destT);
               } else {
@@ -1545,11 +1653,7 @@
             if (typeof dest === "string" && dest.indexOf("attack.html") !== -1) {
               dest = "game.html?phase=attack";
             }
-            if (window.risqueNavigateWithFade) {
-              window.risqueNavigateWithFade(dest);
-            } else {
-              window.location.href = dest;
-            }
+            navigateGameHtmlPreferSoft(dest);
           }, 0);
         } catch (e) {
           console.warn("[Deploy] Failed to save game state.");
@@ -1558,6 +1662,16 @@
     }
 
     deployInit();
+    try {
+      if (typeof opts.onLog === "function") {
+        opts.onLog("Deploy turn mount complete", {
+          phase: gameState && gameState.phase,
+          continentalDeploy: continentalDeploy
+        });
+      }
+    } catch (eLm) {
+      /* ignore */
+    }
     requestAnimationFrame(function () {
       if (window.gameUtils && window.gameUtils.resizeCanvas) {
         window.gameUtils.resizeCanvas();
@@ -1571,6 +1685,13 @@
   window.risquePhases.deploy = {
     runSetup: runSetupDeploy,
     runTurn: mountTurnDeploy,
+    /** Continental conquer chain after con-income (?phase=con-deploy). */
+    runContinentalDeploy: function (host, opts) {
+      opts = opts || {};
+      opts.continentalDeploy = true;
+      opts.conquestAfterDeploy = true;
+      mountTurnDeploy(host, opts);
+    },
     deployKindFromPhase: function (ph) {
       var s = String(ph || "").trim();
       if (s === "deploy1") return "setup";

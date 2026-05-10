@@ -112,7 +112,16 @@
         }
         overlay.remove();
       } else {
-        overlay.remove();
+        /* In-place handoff: let the next frame(s) paint under the overlay so removing it does not flash. */
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            try {
+              overlay.remove();
+            } catch (eRm) {
+              /* ignore */
+            }
+          });
+        });
       }
     });
   }

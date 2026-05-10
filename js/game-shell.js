@@ -318,6 +318,68 @@
       window.__risquePostReceiveBlackoutHide = showPostReceiveCardplayBlackout();
     }
   }
+
+  /**
+   * Tear down post-receive → cardplay navigation chrome (black overlays, VT suppression).
+   * Safe to call multiple times. Exposed for recovery if cardplay mount fails mid-flight.
+   */
+  function clearPostReceiveNavigationArtifacts(reason) {
+    try {
+      if (typeof window.__risquePostReceiveBlackoutHide === "function") {
+        var h = window.__risquePostReceiveBlackoutHide;
+        window.__risquePostReceiveBlackoutHide = null;
+        try {
+          h();
+        } catch (eH) {
+          /* ignore */
+        }
+      }
+    } catch (e0) {
+      /* ignore */
+    }
+    try {
+      var bl = document.getElementById("risque-post-receive-blackout");
+      if (bl && bl.parentNode) bl.parentNode.removeChild(bl);
+    } catch (e1) {
+      /* ignore */
+    }
+    try {
+      var og = document.getElementById(OUTGOING_NAV_BLACKOUT_ID);
+      if (og && og.parentNode) og.parentNode.removeChild(og);
+      var styles = document.querySelectorAll("style[data-risque-outgoing-nav-blackout]");
+      for (var si = 0; si < styles.length; si += 1) {
+        var st = styles[si];
+        if (st && st.parentNode) st.parentNode.removeChild(st);
+      }
+    } catch (e2) {
+      /* ignore */
+    }
+    try {
+      var vt = document.getElementById(VT_SUPPRESS_ONE_SHOT_ID);
+      if (vt && vt.parentNode) vt.parentNode.removeChild(vt);
+    } catch (e3) {
+      /* ignore */
+    }
+    try {
+      var early = document.getElementById("risque-post-receive-blackout-early-inline");
+      if (early && early.parentNode) early.parentNode.removeChild(early);
+    } catch (e4) {
+      /* ignore */
+    }
+    try {
+      sessionStorage.removeItem(POST_RECEIVE_CARDPLAY_BLACKOUT_KEY);
+    } catch (e5) {
+      /* ignore */
+    }
+    try {
+      if (reason && typeof console !== "undefined" && console.warn) {
+        console.warn("[RISQUE] clearPostReceiveNavigationArtifacts:", reason);
+      }
+    } catch (eL) {
+      /* ignore */
+    }
+  }
+  window.risqueClearPostReceiveNavigationArtifacts = clearPostReceiveNavigationArtifacts;
   /*
    * Public board must follow mirrored gameState.phase only. A stale ?phase=attack (or any host URL
    * copied into this tab) would mount the wrong UI (e.g. attack while state is deploy).
@@ -1432,6 +1494,16 @@
     return _pubBook.phase;
   };
 
+  /** Income mirror can arrive while the committed cardplay book animation still runs — suppress income grid until done. */
+  function risqueIncomePhaseBookRecapActive(gs) {
+    if (!gs) return false;
+    if (!risquePhaseIsIncomeVoiceMirror(gs.phase)) return false;
+    var pubBookPhase = _pubBook.phase;
+    if (pubBookPhase === "done" || pubBookPhase === "idle") return false;
+    var proc = gs.risquePublicBookProcessing;
+    return !!(proc && Array.isArray(proc.steps) && proc.steps.length > 0);
+  }
+
   /**
    * Same-origin phase navigation. Cross-dissolve comes from the View Transitions API (see game.css);
    * we avoid fading the shell to black (that fights a true dissolve).
@@ -1444,6 +1516,17 @@
       } catch (eNavMir) {
         /* ignore */
       }
+    }
+    try {
+      if (
+        !window.risqueDisplayIsPublic &&
+        typeof window.risqueNavigateGameHtmlSoft === "function" &&
+        window.risqueNavigateGameHtmlSoft(url)
+      ) {
+        return;
+      }
+    } catch (eSoftFade) {
+      /* ignore */
     }
     window.location.href = url;
   };
@@ -1511,9 +1594,10 @@
   }
 
   /**
-   * Lean localStorage (default ON via `risqueLsReplayLiteEffective` in replay-tape.js): omit replay blobs from
-   * persisted gameState; live `window.gameState` still holds the tape. Opt out of lean LS: `?lsReplayLite=0`
-   * or `risqueLsReplayLite=0`. Mirror/saveState use same keys as `REPLAY_STRIP_KEYS` in replay-tape.js.
+   * Lean localStorage (opt-in via `risqueLsReplayLiteEffective` in replay-tape.js): omit replay blobs from
+   * persisted gameState; live `window.gameState` still holds the tape. Enable: `?lsReplayLite=1` or
+   * `risqueLsReplayLite=1`; disable explicit opt-out: `?lsReplayLite=0`. Mirror disk payload uses the same
+   * replay strip keys as `REPLAY_STRIP_KEYS` in replay-tape.js when lite is on.
    */
   var RISQUE_LS_REPLAY_LITE_KEYS = [
     "risqueReplayTape",
@@ -1546,7 +1630,7 @@
     __risqueLoggedLsReplayLite = true;
     try {
       console.info(
-        "[RISQUE] Lean localStorage: replay omitted from persisted gameState (default). " +
+        "[RISQUE] Lean localStorage: replay omitted from persisted gameState (lsReplayLite on). " +
           "Full replay stays in memory until reload; use SAVE for a file with tape. Opt out: ?lsReplayLite=0"
       );
     } catch (eLog) {
@@ -1582,7 +1666,20 @@
     try {
       var gs = window.gameState;
       /* Ephemeral TV-only fields (e.g. name roulette) must not bloat host saves */
-      var forDisk = JSON.parse(JSON.stringify(gs));
+      var forDisk;
+      if (risqueLocalStorageReplayLiteEnabled()) {
+        risqueMaybeLogLsReplayLiteOnce();
+        forDisk =
+          typeof window.risqueCloneGameStateOmitReplayKeys === "function"
+            ? window.risqueCloneGameStateOmitReplayKeys(gs)
+            : null;
+        if (!forDisk) {
+          forDisk = JSON.parse(JSON.stringify(gs));
+          risqueApplyLsReplayLiteToPayload(forDisk);
+        }
+      } else {
+        forDisk = JSON.parse(JSON.stringify(gs));
+      }
       delete forDisk.risqueReplayPlaybackActive;
       delete forDisk.phaseReplayIndex;
       delete forDisk.risquePublicPlayerSelectFlash;
@@ -1608,10 +1705,6 @@
         delete forDisk.risquePublicCardplaySpectatorHandCount;
         delete forDisk.risquePublicCardplaySpectatorPlayer;
       }
-      if (risqueLocalStorageReplayLiteEnabled()) {
-        risqueMaybeLogLsReplayLiteOnce();
-        risqueApplyLsReplayLiteToPayload(forDisk);
-      }
       var forDiskJson = JSON.stringify(forDisk);
       if (!risqueTryWriteLocalStorageWithQuotaFallback(STORAGE_KEY, forDiskJson)) {
         var emergencyDisk = risqueBuildEmergencyStorageState(forDisk);
@@ -1628,7 +1721,13 @@
         snap.players &&
         Array.isArray(snap.players)
       ) {
-        out = JSON.parse(JSON.stringify(gs));
+        out =
+          typeof window.risqueCloneGameStateOmitReplayKeys === "function"
+            ? window.risqueCloneGameStateOmitReplayKeys(gs)
+            : null;
+        if (!out) {
+          out = JSON.parse(JSON.stringify(gs));
+        }
         out.players = JSON.parse(JSON.stringify(snap.players));
         out.aerialAttack = !!snap.aerialAttack;
         out.bookPlayedThisTurn = !!snap.bookPlayedThisTurn;
@@ -1687,7 +1786,13 @@
           delete mirrorPayload.risquePublicLoginFormMirror;
         }
       } else {
-        mirrorPayload = JSON.parse(JSON.stringify(out));
+        mirrorPayload =
+          typeof window.risqueCloneGameStateOmitReplayKeys === "function"
+            ? window.risqueCloneGameStateOmitReplayKeys(out)
+            : null;
+        if (!mirrorPayload) {
+          mirrorPayload = JSON.parse(JSON.stringify(out));
+        }
       }
       if (
         String(gs.phase || "") === "attack" &&
@@ -1778,6 +1883,13 @@
 
   window.addEventListener("pagehide", function () {
     if (window.risqueDisplayIsPublic) return;
+    try {
+      if (typeof window.risqueReplayFlushTapeSidecarSchedule === "function") {
+        window.risqueReplayFlushTapeSidecarSchedule();
+      }
+    } catch (ePHSc) {
+      /* ignore */
+    }
     if (typeof window.risqueFlushMirrorPush === "function") {
       try {
         window.risqueFlushMirrorPush();
@@ -3211,7 +3323,6 @@
   function risquePublicRenderMapForBook(gs) {
     if (!window.gameUtils || !gs) return;
     if (
-      !window.risqueDisplayIsPublic ||
       !_pubBook.displayTroopMap ||
       (_pubBook.phase !== "summary" && _pubBook.phase !== "step")
     ) {
@@ -3253,7 +3364,7 @@
 
   /**
    * Build ordered steps for public TV cardplay (reverse-walk effects from final board for troop from/to).
-   * Same shape as con-cardplay.html buildPublicBookProcessingPayload; supports aerial_attack voice-only steps.
+   * Same shape as runtime con-cardplay phase buildPublicBookProcessingPayload; supports aerial_attack voice-only steps.
    */
   window.risqueBuildPublicBookProcessingPayload = function (bookAction, playerName, gs) {
     if (!bookAction || bookAction.action !== "book" || !gs) return null;
@@ -3739,46 +3850,38 @@
       String(gs.phase || "") === "cardplay" &&
       !gs.risqueCardplayTvRecapPublished &&
       !hasCardplayTvRecapContent;
-    var pubBookPhase = window.risqueDisplayIsPublic ? window.risquePublicBookSequencePhase() : "idle";
-    if (window.risqueDisplayIsPublic) {
-      var cvRoot = document.getElementById("control-voice");
-      if (cvRoot && pubBookPhase !== "step") {
-        cvRoot.classList.remove("ucp-control-voice--public-book-processing");
-      }
+    var pubBookPhase = window.risquePublicBookSequencePhase();
+    var cvRootEarly = document.getElementById("control-voice");
+    if (cvRootEarly && pubBookPhase !== "step") {
+      cvRootEarly.classList.remove("ucp-control-voice--public-book-processing");
     }
     /**
      * Mirror phase is "income" while the TV runs the committed-cardplay recap — suppress mirrored "INCOME"
      * control voice until the book finishes (even if host already pushed income narrative).
      */
-    var publicIncomePhaseRecapActive =
-      window.risqueDisplayIsPublic &&
-      risquePhaseIsIncomeVoiceMirror(gs.phase) &&
-      pubBookPhase !== "done" &&
-      gs.risquePublicBookProcessing &&
-      Array.isArray(gs.risquePublicBookProcessing.steps) &&
-      gs.risquePublicBookProcessing.steps.length > 0;
+    var incomePhaseBookRecapActive = risqueIncomePhaseBookRecapActive(gs);
     var renderIncomeBreakdownGridPublic =
       window.risqueDisplayIsPublic &&
       gs &&
       risquePhaseIsIncomeVoiceMirror(gs.phase) &&
       gs.risquePublicIncomeBreakdown &&
       typeof gs.risquePublicIncomeBreakdown === "object" &&
-      !publicIncomePhaseRecapActive;
+      !incomePhaseBookRecapActive;
     var renderIncomeBreakdownGridHost =
       !window.risqueDisplayIsPublic &&
       gs &&
       risquePhaseIsIncomeVoiceMirror(gs.phase) &&
       gs.risquePublicIncomeBreakdown &&
-      typeof gs.risquePublicIncomeBreakdown === "object";
+      typeof gs.risquePublicIncomeBreakdown === "object" &&
+      !incomePhaseBookRecapActive;
     var renderIncomeBreakdownGrid =
       renderIncomeBreakdownGridPublic || renderIncomeBreakdownGridHost;
     var useCpBookImages =
       !cardplayTvAwaitingRecap &&
-      window.risqueDisplayIsPublic &&
       cpBookCardsAll.length > 0 &&
       pubBookPhase !== "step" &&
       pubBookPhase !== "done" &&
-      (cpPhase || publicIncomePhaseRecapActive);
+      (cpPhase || incomePhaseBookRecapActive);
     var atkXfer =
       gs &&
       String(gs.phase || "") === "attack" &&
@@ -3864,7 +3967,7 @@
           : "CARD PLAY";
       reportText = "";
       reportClassName = "ucp-voice-report ucp-voice-report--public-cardplay";
-    } else if (cpPub !== "" || publicIncomePhaseRecapActive) {
+    } else if (cpPub !== "" || incomePhaseBookRecapActive) {
       if (pubBookPhase === "done") {
         basePrimary = "";
         reportText = "";
@@ -3955,7 +4058,7 @@
       reportText = "";
     }
 
-    var skipVoiceForBookStep = window.risqueDisplayIsPublic && pubBookPhase === "step";
+    var skipVoiceForBookStep = pubBookPhase === "step";
 
     var publicBlitzPauseMirror =
       window.risqueDisplayIsPublic &&
@@ -4108,7 +4211,7 @@
       } else if (reportText) {
         vr.textContent = reportText;
         vr.style.display = "block";
-        if (ctf !== "" || cpPub !== "" || publicIncomePhaseRecapActive) {
+        if (ctf !== "" || cpPub !== "" || incomePhaseBookRecapActive) {
           vr.className = reportClassName;
         } else if (useBattleReadout) {
           vr.className = "ucp-voice-report ucp-voice-report--public-battle-detail";
@@ -4149,9 +4252,11 @@
   function clearPublicBookAnimTimers() {
     if (_pubBook.summaryTimer) clearTimeout(_pubBook.summaryTimer);
     if (_pubBook.stepTimer) clearTimeout(_pubBook.stepTimer);
+    if (_pubBook.aerialReadyTimer) clearTimeout(_pubBook.aerialReadyTimer);
     if (_pubBook.rafId) cancelAnimationFrame(_pubBook.rafId);
     _pubBook.summaryTimer = null;
     _pubBook.stepTimer = null;
+    _pubBook.aerialReadyTimer = null;
     _pubBook.rafId = 0;
   }
 
@@ -4516,7 +4621,7 @@
     var vt = document.getElementById("control-voice-text");
     var vr = document.getElementById("control-voice-report");
     var cv = document.getElementById("control-voice");
-    if (cv && window.risqueDisplayIsPublic) {
+    if (cv) {
       cv.classList.add("ucp-control-voice--public-book-processing");
     }
     var proc = _pubBook.proc;
@@ -4864,7 +4969,7 @@
       var elapsed = t0 - start;
       var u = ms > 0 ? Math.min(1, elapsed / ms) : 1;
       var val = Math.round(from + (to - from) * u);
-      var host = document.querySelector('.svg-overlay .territory-number[data-label="' + label + '"]');
+      var host = document.querySelector('#canvas .svg-overlay .territory-number[data-label="' + label + '"]');
       if (host) {
         var pad = String(val).padStart(3, "0");
         if (host.tagName && host.tagName.toLowerCase() === "text") host.textContent = pad;
@@ -4913,7 +5018,6 @@
         risquePublicSyncCardplayStrip(gs);
         risquePublicFlushDeferredIncomeTransition();
         if (
-          window.risqueDisplayIsPublic &&
           gs &&
           gs.risquePublicCardplayRecapAckRequiredSeq != null &&
           String(gs.phase || "") === "cardplay"
@@ -4948,7 +5052,6 @@
         proc.steps &&
         proc.steps.length > 0 &&
         idx >= proc.steps.length &&
-        window.risqueDisplayIsPublic &&
         risquePublicShelfOverlayHasShelfPanel() &&
         risquePublicProcRecapAnimation(proc) &&
         risquePublicShelfLowerHasCardSlots();
@@ -4963,15 +5066,11 @@
     var actingPlayer = String((proc.playerName || gs.currentPlayer || "") + "");
     _pubBook.stepIndex = idx;
     var useShelfRecap =
-      window.risqueDisplayIsPublic &&
       risquePublicShelfOverlayHasShelfPanel() &&
       risquePublicProcRecapAnimation(proc) &&
       risquePublicShelfLowerHasCardSlots();
     var needsAerialDecision =
-      window.risqueDisplayIsPublic &&
-      risquePublicProcRecapAnimation(proc) &&
-      step &&
-      step.effect === "aerial_attack";
+      risquePublicProcRecapAnimation(proc) && step && step.effect === "aerial_attack";
     function handleAerialChoice(choice) {
       step.risqueAerialDecision = String(choice || "");
       if (choice === "countered") {
@@ -5128,7 +5227,6 @@
     var proc = _pubBook.proc;
     var nextSt = proc && proc.steps && idx + 1 < proc.steps.length ? proc.steps[idx + 1] : null;
     var needAerialGap =
-      window.risqueDisplayIsPublic &&
       proc &&
       risquePublicProcRecapAnimation(proc) &&
       step &&
@@ -5169,7 +5267,7 @@
     _pubBook.focusLabel = step.mapTerritory || null;
     var mapT = step.mapTerritory;
     var stepHold = risquePublicBookStepHoldMs(step);
-    var usePublicSwell = window.risqueDisplayIsPublic && mapT && risquePublicProcRecapAnimation(proc);
+    var usePublicSwell = !!mapT && risquePublicProcRecapAnimation(proc);
 
     function clearFocusThenScheduleNext() {
       if (window.gameState) {
@@ -5181,7 +5279,7 @@
 
     function runTroopOrHoldAfterHighlight() {
       if (mapT && step.animateTroops && step.troopsFrom !== step.troopsTo) {
-        var host0 = document.querySelector('.svg-overlay .territory-number[data-label="' + mapT + '"]');
+        var host0 = document.querySelector('#canvas .svg-overlay .territory-number[data-label="' + mapT + '"]');
         if (host0) {
           var pad0 = String(step.troopsFrom).padStart(3, "0");
           if (host0.tagName && host0.tagName.toLowerCase() === "text") host0.textContent = pad0;
@@ -5293,7 +5391,7 @@
    * full-screen fallback only if the panel is missing.
    */
   function risquePublicEnsureCardplayRecapPanel(gs) {
-    if (!window.risqueDisplayIsPublic || !gs) return;
+    if (!gs) return;
     var ph = String(gs.phase || "");
     var overlayId = "risque-public-cardplay-recap-overlay";
     function removeRecapOverlay() {
@@ -5302,7 +5400,10 @@
       if (el && el.parentNode) el.parentNode.removeChild(el);
       window.__risquePublicCardplayRecapDomSeq = null;
       var rhRm = document.getElementById("runtime-hud-root");
-      if (rhRm) rhRm.classList.remove("runtime-hud-root--public-cardplay-recap");
+      if (rhRm) {
+        rhRm.classList.remove("runtime-hud-root--public-cardplay-recap");
+        rhRm.classList.remove("runtime-hud-root--host-cardplay-recap");
+      }
     }
     if (ph !== "cardplay" && ph !== "con-cardplay") {
       removeRecapOverlay();
@@ -5426,7 +5527,13 @@
       if (mainPanel) {
         overlay.classList.add("risque-public-cardplay-recap-overlay--in-panel");
         mainPanel.appendChild(overlay);
-        if (rh) rh.classList.add("runtime-hud-root--public-cardplay-recap");
+        if (rh) {
+          rh.classList.add(
+            window.risqueDisplayIsPublic
+              ? "runtime-hud-root--public-cardplay-recap"
+              : "runtime-hud-root--host-cardplay-recap"
+          );
+        }
       } else {
         document.body.appendChild(overlay);
       }
@@ -5439,7 +5546,10 @@
         overlay.parentNode.removeChild(overlay);
         overlay.classList.remove("risque-public-cardplay-recap-overlay--in-panel");
         var rh0 = document.getElementById("runtime-hud-root");
-        if (rh0) rh0.classList.remove("runtime-hud-root--public-cardplay-recap");
+        if (rh0) {
+          rh0.classList.remove("runtime-hud-root--public-cardplay-recap");
+          rh0.classList.remove("runtime-hud-root--host-cardplay-recap");
+        }
         finalizePublicRecapAttachment();
       });
     }
@@ -5694,8 +5804,8 @@
 
   function risquePublicMirrorGameStateApply(gs) {
     if (!gs) return;
+    risquePublicBookSequenceOnIncomingState(gs);
     if (window.risqueDisplayIsPublic) {
-      risquePublicBookSequenceOnIncomingState(gs);
       /* Host-only fallback; public render ignores this for warpath (uses gameState.risquePublicCampaignWarpathLabels). */
       window.__risqueCampaignWarpathLabels = Array.isArray(gs.risquePublicCampaignWarpathLabels)
         ? gs.risquePublicCampaignWarpathLabels.slice()
@@ -5746,8 +5856,7 @@
     }
     try {
       maybeEnsureRuntimeHud(gs);
-      var pubRedraw = !window.risqueDisplayIsPublic || !_pubBook.skipTerritoryRedraw;
-      if (pubRedraw) {
+      if (!_pubBook.skipTerritoryRedraw) {
         if (window.risqueDisplayIsPublic) {
           var dealPopTv = "";
           if (String(gs.phase || "") === "deal" && gs.risquePublicDealPopTerritory != null) {
@@ -5764,6 +5873,8 @@
           } else {
             risquePublicRenderMapForBook(gs);
           }
+        } else if (_pubBook.displayTroopMap && (_pubBook.phase === "summary" || _pubBook.phase === "step")) {
+          risquePublicRenderMapForBook(gs);
         } else {
           window.gameUtils.renderTerritories(null, gs);
         }
@@ -5813,8 +5924,8 @@
       }
     }
     risquePublicSyncCardplayStrip(gs);
+    risquePublicEnsureCardplayRecapPanel(gs);
     if (window.risqueDisplayIsPublic) {
-      risquePublicEnsureCardplayRecapPanel(gs);
       risquePublicEnsureCardplayPrivateHint(gs);
       risquePublicTryScheduleIncomeGateRelease(gs);
     }
@@ -5902,6 +6013,51 @@
 
   window.risquePublicMirrorGameState = risquePublicMirrorGameState;
 
+  /**
+   * Host: after CONFIRM publishes recap + risquePublicBookProcessing, build the shelf DOM and start the
+   * same book sequence the public tab gets from mirror apply (host does not apply the mirror to itself).
+   */
+  window.risqueHostSyncCardplayTvRecapUi = function (gs) {
+    if (window.risqueDisplayIsPublic || !gs) return;
+    try {
+      maybeEnsureRuntimeHud(gs);
+      risquePublicEnsureCardplayRecapPanel(gs);
+      risquePublicBookSequenceOnIncomingState(gs);
+    } catch (eSync) {
+      /* ignore */
+    }
+    try {
+      if (window.gameUtils && typeof window.gameUtils.renderTerritories === "function") {
+        if (!_pubBook.skipTerritoryRedraw) {
+          if (_pubBook.displayTroopMap && (_pubBook.phase === "summary" || _pubBook.phase === "step")) {
+            risquePublicRenderMapForBook(gs);
+          } else {
+            window.gameUtils.renderTerritories(null, gs);
+          }
+        }
+      }
+      if (window.gameUtils && typeof window.gameUtils.renderStats === "function") {
+        window.gameUtils.renderStats(gs);
+      }
+    } catch (eMap) {
+      /* ignore */
+    }
+    try {
+      risquePublicApplyVoiceAndLogMirror(gs);
+    } catch (eVoice) {
+      /* ignore */
+    }
+    if (window.risqueRuntimeHud && typeof window.risqueRuntimeHud.syncPosition === "function") {
+      requestAnimationFrame(function () {
+        try {
+          window.risqueRuntimeHud.syncPosition();
+        } catch (ePos) {
+          /* ignore */
+        }
+      });
+    }
+  };
+
   function timestamp() {
     return new Date().toISOString();
   }
@@ -5950,8 +6106,8 @@
     var scale = Math.min(h / 1080, w / 1920);
     canvas.style.transform = "translate(-50%, 0) scale(" + scale + ")";
     canvas.classList.add("visible");
-    var stageImage = document.querySelector(".stage-image");
-    var svgOverlay = document.querySelector(".svg-overlay");
+    var stageImage = canvas.querySelector(".stage-image");
+    var svgOverlay = canvas.querySelector(".svg-overlay");
     var uiOverlay = document.querySelector(".ui-overlay");
     if (stageImage) stageImage.classList.add("visible");
     if (svgOverlay) svgOverlay.classList.add("visible");
@@ -6220,6 +6376,37 @@
   }
 
   var GRACE_PHASE_START_MAX = 220;
+  /** Session-only copy of last gameState JSON before each persist — survives reload in this tab so Grace “Undo” works after refresh. */
+  var GRACE_LAST_UNDO_SESSION_KEY = "risqueGraceLastUndoJson";
+
+  function persistGraceLastUndoSession(rawPrevJson) {
+    if (!rawPrevJson || typeof rawPrevJson !== "string") return;
+    try {
+      sessionStorage.setItem(GRACE_LAST_UNDO_SESSION_KEY, rawPrevJson);
+    } catch (eS) {
+      /* ignore quota */
+    }
+  }
+
+  function restoreGraceLastUndoFromSession() {
+    try {
+      var j = sessionStorage.getItem(GRACE_LAST_UNDO_SESSION_KEY);
+      if (j && typeof j === "string") {
+        window.__risqueGraceLastUndoJson = j;
+      }
+    } catch (eR) {
+      /* ignore */
+    }
+  }
+
+  function clearGraceLastUndoSession() {
+    try {
+      sessionStorage.removeItem(GRACE_LAST_UNDO_SESSION_KEY);
+    } catch (eC) {
+      /* ignore */
+    }
+    window.__risqueGraceLastUndoJson = null;
+  }
 
   function restoreGraceCardplaySnapshotsFromStorage() {
     if (window.risqueDisplayIsPublic) return;
@@ -6254,6 +6441,7 @@
     } catch (eR) {
       window.__risqueGraceCardplayStarts = [];
     }
+    restoreGraceLastUndoFromSession();
   }
 
   function persistGracePhaseSnapshotsToStorage(arr) {
@@ -6297,8 +6485,9 @@
         return;
       }
       if (rawPrevJson && typeof rawPrevJson === "string") {
-        /* UNDO is one-step and in-memory only; avoid array/storage churn on every save. */
+        /* UNDO = previous committed save — persist per-tab so reload does not erase it. */
         window.__risqueGraceLastUndoJson = rawPrevJson;
+        persistGraceLastUndoSession(rawPrevJson);
       }
       var prevPh = prev && prev.phase != null ? String(prev.phase) : "";
       var nextPh = nextGs.phase != null ? String(nextGs.phase) : "";
@@ -6403,6 +6592,28 @@
     };
   })();
 
+  /**
+   * Last bookmark for this phase + player (moment you entered this phase). Use to rewind
+   * reinforce / attack clicks without leaving the phase.
+   */
+  function graceFindCurrentPhaseStartSnapshot(gs) {
+    var arr = window.__risqueGraceCardplayStarts;
+    if (!Array.isArray(arr) || !arr.length || !gs) return null;
+    var curPh = String(gs.phase || "");
+    var curPlayer = String(gs.currentPlayer || "");
+    if (!curPh || curPh === "login") return null;
+    var i;
+    for (i = arr.length - 1; i >= 0; i--) {
+      var e = arr[i];
+      if (!e || typeof e.json !== "string") continue;
+      if (String(e.phase || "") === curPh && String(e.player || "") === curPlayer) {
+        return { index: i, entry: e };
+      }
+    }
+    return null;
+  }
+
+  /** Board state at end of the previous phase (before you entered the current phase). */
   function graceFindPreviousPhaseSnapshot(gs) {
     var arr = window.__risqueGraceCardplayStarts;
     if (!Array.isArray(arr) || !arr.length || !gs) return null;
@@ -6414,7 +6625,7 @@
       if (!e || typeof e.json !== "string") continue;
       var ph = String(e.phase || "");
       var pl = String(e.player || "");
-      /* Skip exact current phase/player snapshot; return the immediately previous phase boundary. */
+      /* Skip “start of current phase” rows; next different row is end of prior phase. */
       if (ph === curPh && pl === curPlayer) continue;
       return { index: i, entry: e };
     }
@@ -6536,6 +6747,13 @@
 
   function saveState(state) {
     function write() {
+      try {
+        if (typeof window.risqueReplayFlushTapeSidecarSchedule === "function") {
+          window.risqueReplayFlushTapeSidecarSchedule();
+        }
+      } catch (eFlSc) {
+        /* ignore */
+      }
       var payload = state;
       try {
         if (typeof window.risqueReplayPersistTapeSidecar === "function") {
@@ -7967,8 +8185,9 @@
   function updateDiagnostics(note) {
     var el = document.getElementById("viz-diagnostics");
     if (!el) return;
-    var stage = document.querySelector(".stage-image");
-    var svg = document.querySelector(".svg-overlay");
+    var canvasDiag = document.getElementById("canvas");
+    var stage = canvasDiag ? canvasDiag.querySelector(".stage-image") : null;
+    var svg = canvasDiag ? canvasDiag.querySelector(".svg-overlay") : null;
     var circles = svg ? svg.querySelectorAll("circle.territory-circle").length : 0;
     var handCount = document.querySelectorAll("#ui-overlay .runtime-hand-card").length;
     var stageLine = "Stage: not loaded";
@@ -8091,6 +8310,46 @@
     });
   }
 
+  var RISQUE_PHASE_ENTRY_VEIL_KEY = "risquePhaseEntryVeil";
+
+  /** Host: black veil across cardplay→income navigation until first income/con-income map paint finishes (sessionStorage set in cardplay.js). */
+  function risqueEnsurePhaseIncomeEntryVeilFromStorage(st) {
+    if (window.risqueDisplayIsPublic) return;
+    if (!st || typeof st !== "object") return;
+    var ph = String(st.phase || "");
+    if (ph !== "income" && ph !== "con-income") return;
+    try {
+      if (sessionStorage.getItem(RISQUE_PHASE_ENTRY_VEIL_KEY) !== "1") return;
+    } catch (eV) {
+      return;
+    }
+    if (document.getElementById("risque-phase-entry-veil")) return;
+    var v = document.createElement("div");
+    v.id = "risque-phase-entry-veil";
+    v.setAttribute("aria-hidden", "true");
+    v.style.cssText =
+      "position:fixed;inset:0;background:#000000;z-index:2147483644;pointer-events:none;";
+    document.body.appendChild(v);
+  }
+
+  function risqueClearPhaseIncomeEntryVeilAfterPaint() {
+    if (window.risqueDisplayIsPublic) return;
+    try {
+      if (sessionStorage.getItem(RISQUE_PHASE_ENTRY_VEIL_KEY) !== "1") return;
+    } catch (e0) {
+      return;
+    }
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        try {
+          var el = document.getElementById("risque-phase-entry-veil");
+          if (el && el.parentNode) el.parentNode.removeChild(el);
+          sessionStorage.removeItem(RISQUE_PHASE_ENTRY_VEIL_KEY);
+        } catch (e1) {}
+      });
+    });
+  }
+
   function refreshVisuals(note) {
     /* TV: storage/poll may apply a newer mirror before this rAF — do not clobber risquePublicPlayerSelectFlash etc. */
     if (window.risqueDisplayIsPublic && window.gameState && typeof window.gameState === "object") {
@@ -8101,6 +8360,7 @@
       }
     }
     window.gameState = state;
+    risqueEnsurePhaseIncomeEntryVeilFromStorage(state);
     if (!window.risqueDisplayIsPublic && state && typeof state === "object") {
       var phClear = String(state.phase || "");
       if (
@@ -8200,11 +8460,26 @@
           risquePublicApplyDiceAndBattleReadout(state);
         }
         risquePublicApplyVoiceAndLogMirror(state);
+        risqueClearPhaseIncomeEntryVeilAfterPaint();
         return;
       }
       try {
         maybeEnsureRuntimeHud(state);
-        window.gameUtils.renderTerritories(null, state);
+        risquePublicEnsureCardplayRecapPanel(state);
+        if (!window.risqueDisplayIsPublic) {
+          risquePublicBookSequenceOnIncomingState(state);
+        }
+        if (!window.risqueDisplayIsPublic && _pubBook.skipTerritoryRedraw) {
+          /* cardplay book tween holds map — same as public mirror path */
+        } else if (
+          !window.risqueDisplayIsPublic &&
+          _pubBook.displayTroopMap &&
+          (_pubBook.phase === "summary" || _pubBook.phase === "step")
+        ) {
+          risquePublicRenderMapForBook(state);
+        } else {
+          window.gameUtils.renderTerritories(null, state);
+        }
         window.gameUtils.renderStats(state);
         renderHandCardsOnBoard(state);
         resizeRuntimeCanvas();
@@ -8231,6 +8506,7 @@
           state &&
           risquePhaseIsIncomeVoiceMirror(state.phase) &&
           state.risquePublicIncomeBreakdown &&
+          !risqueIncomePhaseBookRecapActive(state) &&
           typeof window.risqueHostApplyIncomeBreakdownVoice === "function"
         ) {
           try {
@@ -8335,11 +8611,691 @@
           }
         }
         __risquePrevPhaseForReplayCardplayHook = phReplay;
+        risqueClearPhaseIncomeEntryVeilAfterPaint();
       } catch (e2) {
         updateDiagnostics(e2.message || String(e2));
+        risqueClearPhaseIncomeEntryVeilAfterPaint();
       }
     });
   }
+
+  /** Shared with boot-time cardplay branch — same-document navigate calls this too. */
+  function mountCardplayAfterOptionalHandoff(opts) {
+    opts = opts || {};
+    var stripPostReceive =
+      !!opts.stripPostReceive &&
+      skipCardplayEntryHandoff &&
+      !window.risqueDisplayIsPublic;
+    var lnCardplay = legacyNext;
+    if (Object.prototype.hasOwnProperty.call(opts, "cardplayLegacyNext")) {
+      lnCardplay = opts.cardplayLegacyNext;
+    }
+    try {
+      window.risquePhases.cardplay.mount(stageHost, {
+        legacyNext: lnCardplay,
+        onLog: function (msg, data) {
+          logEvent(msg, data);
+        }
+      });
+    } catch (eMount) {
+      clearPostReceiveNavigationArtifacts("cardplay.mount threw");
+      try {
+        logEvent("Card play mount failed", { message: eMount && eMount.message ? eMount.message : String(eMount) });
+      } catch (eLog) {
+        /* ignore */
+      }
+      try {
+        setBoardCornerMsg(
+          "Card play failed to open. Reload; if stuck on black, open the browser console and run: risqueClearPostReceiveNavigationArtifacts()"
+        );
+      } catch (eMsg) {
+        /* ignore */
+      }
+      console.error("[RISQUE] cardplay.mount failed", eMount);
+      return;
+    }
+    try {
+      refreshVisuals("Card play mounted");
+    } catch (eVis) {
+      clearPostReceiveNavigationArtifacts("refreshVisuals after cardplay");
+      try {
+        logEvent("Card play refresh failed", { message: eVis && eVis.message ? eVis.message : String(eVis) });
+      } catch (eLog2) {
+        /* ignore */
+      }
+      try {
+        setBoardCornerMsg("Map refresh failed after card play. Try reloading the page.");
+      } catch (eMsg2) {
+        /* ignore */
+      }
+      console.error("[RISQUE] refreshVisuals after cardplay failed", eVis);
+      return;
+    }
+    if (stripPostReceive) {
+      try {
+        var uPostOk = new URL(window.location.href);
+        if (uPostOk.searchParams.has("postReceive")) {
+          uPostOk.searchParams.delete("postReceive");
+          var postQsOk = uPostOk.searchParams.toString();
+          window.history.replaceState(
+            null,
+            "",
+            uPostOk.pathname + (postQsOk ? "?" + postQsOk : "") + uPostOk.hash
+          );
+        }
+      } catch (ePostOk) {
+        /* ignore */
+      }
+    }
+    if (typeof window.__risquePostReceiveBlackoutHide === "function") {
+      var hideBlk = window.__risquePostReceiveBlackoutHide;
+      window.__risquePostReceiveBlackoutHide = null;
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          try {
+            hideBlk();
+          } catch (eBlk) {
+            /* ignore */
+          }
+          clearPostReceiveNavigationArtifacts("after post-receive blackout hide");
+        });
+      });
+    } else {
+      clearPostReceiveNavigationArtifacts("no blackout hide fn after cardplay");
+    }
+  }
+
+  /** Mirrors boot cardplay branch (receive-card → cardplay uses postReceive=1 = skip second handoff). */
+  function risqueMountCardplayShellSameDocument(shellOpts) {
+    shellOpts = shellOpts || {};
+    var handoffLn = Object.prototype.hasOwnProperty.call(shellOpts, "cardplayLegacyNext")
+      ? shellOpts.cardplayLegacyNext
+      : legacyNext;
+    document.body.classList.add("risque-setup-fullstage");
+    phaseLabelEl.textContent = "Phase: card play";
+    appEl.innerHTML = "<p class=\"muted\">Card play — use the map overlay.</p>";
+    window.gameState = state;
+    if (skipCardplayEntryHandoff && !window.risqueDisplayIsPublic) {
+      mountCardplayAfterOptionalHandoff({
+        stripPostReceive: true,
+        cardplayLegacyNext: handoffLn
+      });
+    } else if (
+      !window.risqueDisplayIsPublic &&
+      window.risquePhases &&
+      window.risquePhases.privacyGate &&
+      typeof window.risquePhases.privacyGate.mountHostTabletHandoff === "function"
+    ) {
+      var hostName = (state.currentPlayer || "the current player").toString();
+      var cardHandoffMsg =
+        "Card play\n\nHand the tablet to " +
+        hostName +
+        ".\n\nOnly this player should tap Continue.";
+      window.risquePhases.privacyGate.mountHostTabletHandoff({
+        message: cardHandoffMsg,
+        onContinue: function () {
+          mountCardplayAfterOptionalHandoff({
+            stripPostReceive: false,
+            cardplayLegacyNext: handoffLn
+          });
+        },
+        onLog: function (line) {
+          logEvent(line);
+        }
+      });
+    } else {
+      mountCardplayAfterOptionalHandoff({
+        stripPostReceive: false,
+        cardplayLegacyNext: handoffLn
+      });
+    }
+  }
+
+  /** Continental conquer (?phase=con-cardplay): runtime cardplay HUD + default next phase con-income. */
+  function risqueBootMountRuntimeCardplayContinental() {
+    var ln =
+      legacyNext != null && String(legacyNext).trim() !== ""
+        ? legacyNext
+        : "game.html?phase=con-income";
+    risqueMountCardplayShellSameDocument({ cardplayLegacyNext: ln });
+    if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+      window.risqueMirrorPushGameState();
+    }
+  }
+
+  /**
+   * Same-document phase change on game.html (no full reload).
+   * Handles phase=income, con-income, cardplay (receive-card → cardplay handoff Continue),
+   * phase=playerSelect (login → setup picks), phase=deal (player-select → deal cards),
+   * phase=deploy (player-select → setup deploy / income → turn deploy),
+   * phase=attack (deploy → attack), phase=reinforce (attack → reinforce),
+   * phase=receivecard (reinforce → receive card / conquer elimination card receive),
+   * and continental chain phases: conquer, con-cardtransfer, con-cardplay, con-deploy, con-transfertroops.
+   */
+  function risqueNavigateGameHtmlSoft(nextUrl) {
+    if (!nextUrl || window.risqueDisplayIsPublic) return false;
+    var parsed;
+    try {
+      parsed = new URL(nextUrl, window.location.href);
+    } catch (e0) {
+      return false;
+    }
+    var curBase = String(window.location.pathname || "").replace(/^.*[/\\]/, "") || "";
+    var nextBase = String(parsed.pathname || "").replace(/^.*[/\\]/, "") || "";
+    if (!nextBase || nextBase !== curBase) return false;
+    var ph = String(parsed.searchParams.get("phase") || "").trim();
+    if (
+      ph !== "income" &&
+      ph !== "con-income" &&
+      ph !== "cardplay" &&
+      ph !== "playerSelect" &&
+      ph !== "deal" &&
+      ph !== "deploy" &&
+      ph !== "attack" &&
+      ph !== "reinforce" &&
+      ph !== "receivecard" &&
+      ph !== "conquer" &&
+      ph !== "con-cardtransfer" &&
+      ph !== "con-cardplay" &&
+      ph !== "con-deploy" &&
+      ph !== "con-transfertroops"
+    ) {
+      return false;
+    }
+    if (ph === "playerSelect") {
+      var skPre = String(parsed.searchParams.get("selectKind") || "").trim();
+      if (!skPre) return false;
+    }
+    if (ph === "deploy") {
+      if (
+        !window.risquePhases ||
+        !window.risquePhases.deploy ||
+        typeof window.risquePhases.deploy.runSetup !== "function" ||
+        typeof window.risquePhases.deploy.runTurn !== "function"
+      ) {
+        return false;
+      }
+    }
+    if (ph === "attack") {
+      if (
+        !window.risquePhases ||
+        !window.risquePhases.attack ||
+        typeof window.risquePhases.attack.mount !== "function"
+      ) {
+        return false;
+      }
+    }
+    if (ph === "reinforce") {
+      if (
+        !window.risquePhases ||
+        !window.risquePhases.reinforce ||
+        typeof window.risquePhases.reinforce.mount !== "function"
+      ) {
+        return false;
+      }
+    }
+    if (ph === "receivecard") {
+      if (
+        !window.risquePhases ||
+        !window.risquePhases.receivecard ||
+        typeof window.risquePhases.receivecard.mount !== "function"
+      ) {
+        return false;
+      }
+    }
+    if (ph === "conquer") {
+      if (
+        !window.risquePhases ||
+        !window.risquePhases.conquer ||
+        typeof window.risquePhases.conquer.mount !== "function"
+      ) {
+        return false;
+      }
+    }
+    if (ph === "con-cardtransfer") {
+      if (
+        !window.risquePhases ||
+        !window.risquePhases.conCardtransfer ||
+        typeof window.risquePhases.conCardtransfer.mount !== "function"
+      ) {
+        return false;
+      }
+    }
+    if (ph === "con-cardplay") {
+      if (
+        !window.risquePhases ||
+        !window.risquePhases.cardplay ||
+        typeof window.risquePhases.cardplay.mount !== "function"
+      ) {
+        return false;
+      }
+    }
+    if (ph === "con-deploy") {
+      if (
+        !window.risquePhases ||
+        !window.risquePhases.deploy ||
+        typeof window.risquePhases.deploy.runContinentalDeploy !== "function"
+      ) {
+        return false;
+      }
+    }
+    if (ph === "con-transfertroops") {
+      if (
+        !window.risquePhases ||
+        !window.risquePhases.conTransfertroops ||
+        typeof window.risquePhases.conTransfertroops.mount !== "function"
+      ) {
+        return false;
+      }
+    }
+    if (ph === "con-income") {
+      if (
+        !window.risquePhases ||
+        !window.risquePhases.income ||
+        typeof window.risquePhases.income.runConquerIncome !== "function"
+      ) {
+        return false;
+      }
+    }
+
+    try {
+      if (typeof window.risqueFlushMirrorPush === "function") {
+        window.risqueFlushMirrorPush();
+      }
+    } catch (eM) {}
+
+    try {
+      history.replaceState(null, "", parsed.pathname + parsed.search + parsed.hash);
+    } catch (eH) {
+      return false;
+    }
+
+    /* Attack mount uses this to skip wiping campaign memory on redundant attack→attack soft-nav remounts. */
+    var prevShellPhaseForAttackMount = forcedPhase;
+
+    query = new URLSearchParams(parsed.search);
+    forcedPhase = ph;
+    if (ph === "attack") {
+      try {
+        window.__risqueAttackMountFromPhase = prevShellPhaseForAttackMount;
+      } catch (eApm) {}
+    } else {
+      try {
+        delete window.__risqueAttackMountFromPhase;
+      } catch (eApm2) {}
+    }
+    legacyNext = query.get("legacyNext");
+    skipCardplayEntryHandoff = String(query.get("postReceive") || "") === "1";
+    selectKind = query.get("selectKind");
+    deployKindQuery = (query.get("kind") || "").trim().toLowerCase();
+
+    state = loadState();
+    window.gameState = state;
+    syncPhaseDataAttr(state);
+
+    try {
+      delete window.__risqueSuppressHostMapRedraw;
+    } catch (eS) {}
+
+    var fh = document.getElementById("risque-income-transition-hold");
+    if (fh && fh.parentNode) fh.parentNode.removeChild(fh);
+    var cvs = document.getElementById("canvas");
+    if (cvs) {
+      try {
+        cvs.style.visibility = "";
+        cvs.style.transition = "";
+        cvs.removeAttribute("aria-hidden");
+      } catch (eCv) {}
+    }
+
+    try {
+      clearPostReceiveNavigationArtifacts("risqueNavigateGameHtmlSoft");
+    } catch (eCl) {}
+
+    document.body.classList.add("risque-setup-fullstage");
+
+    if (ph === "cardplay") {
+      risqueMountCardplayShellSameDocument();
+      if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+        try {
+          window.risqueMirrorPushGameState();
+        } catch (eMp) {}
+      }
+      try {
+        logEvent("Soft navigate (same document)", { phase: ph, url: nextUrl });
+      } catch (eL) {}
+      return true;
+    }
+
+    if (ph === "playerSelect") {
+      loginMounted = false;
+      try {
+        document.body.classList.remove("risque-public-login-active");
+      } catch (ePubL) {}
+      var loPs = document.getElementById("risque-login-overlay");
+      if (loPs && loPs.parentNode) loPs.parentNode.removeChild(loPs);
+      var embPs = document.getElementById("risque-login-embedded-root");
+      if (embPs && embPs.parentNode) embPs.parentNode.removeChild(embPs);
+      phaseLabelEl.textContent = "Phase: player select (" + selectKind + ")";
+      appEl.innerHTML = "";
+      var psBanner =
+        selectKind === "firstCard"
+          ? "FIRST CARD"
+          : selectKind === "deployOrder"
+            ? "DEPLOY ORDER"
+            : "SELECTING PLAYER ONE";
+      refreshSetupStageChrome(psBanner, function () {
+        if (
+          window.risquePhases &&
+          window.risquePhases.playerSelect &&
+          typeof window.risquePhases.playerSelect.mount === "function"
+        ) {
+          window.risquePhases.playerSelect.mount(stageHost, {
+            selectKind: selectKind,
+            log: function (line) {
+              logEvent(line);
+            }
+          });
+        }
+      });
+      if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+        try {
+          window.risqueMirrorPushGameState();
+        } catch (eMpPs) {}
+      }
+      try {
+        logEvent("Soft navigate (same document)", { phase: ph, url: nextUrl });
+      } catch (eLPs) {}
+      return true;
+    }
+
+    if (ph === "deal") {
+      var psDeal = document.getElementById("risque-player-select-root");
+      if (psDeal && psDeal.parentNode) psDeal.parentNode.removeChild(psDeal);
+      phaseLabelEl.textContent = "Phase: deal";
+      appEl.innerHTML = "";
+      refreshSetupStageChrome("DEAL", function () {
+        if (
+          window.risquePhases &&
+          window.risquePhases.deal &&
+          typeof window.risquePhases.deal.run === "function"
+        ) {
+          window.risquePhases.deal.run(stageHost, {
+            log: function (line) {
+              logEvent(line);
+            }
+          });
+        }
+      });
+      if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+        try {
+          window.risqueMirrorPushGameState();
+        } catch (eMpDeal) {}
+      }
+      try {
+        logEvent("Soft navigate (same document)", { phase: ph, url: nextUrl });
+      } catch (eLDeal) {}
+      return true;
+    }
+
+    if (ph === "deploy") {
+      var dkSoft = resolveDeployKindForHost();
+      appEl.innerHTML = "";
+      if (dkSoft === "setup") {
+        phaseLabelEl.textContent = "Phase: deployment (setup)";
+        refreshSetupStageChrome("FIRST DEPLOYMENT", function () {
+          if (
+            window.risquePhases &&
+            window.risquePhases.deploy &&
+            typeof window.risquePhases.deploy.runSetup === "function"
+          ) {
+            window.risquePhases.deploy.runSetup(stageHost, {
+              log: function (line) {
+                logEvent(line);
+              }
+            });
+          }
+        });
+      } else {
+        phaseLabelEl.textContent = "Phase: deployment";
+        window.gameState = state;
+        if (
+          window.risquePhases &&
+          window.risquePhases.deploy &&
+          typeof window.risquePhases.deploy.runTurn === "function"
+        ) {
+          window.risquePhases.deploy.runTurn(stageHost, {
+            onLog: function (msg, data) {
+              logEvent(msg, data);
+            },
+            conquestAfterDeploy: query.get("conquestAfterDeploy") === "1"
+          });
+        }
+        refreshVisuals("Deploy (turn) mounted (same-document)");
+      }
+      if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+        try {
+          window.risqueMirrorPushGameState();
+        } catch (eMpDep) {}
+      }
+      try {
+        logEvent("Soft navigate (same document)", { phase: ph, url: nextUrl });
+      } catch (eLDep) {}
+      return true;
+    }
+
+    if (ph === "attack") {
+      phaseLabelEl.textContent = "Phase: attack";
+      appEl.innerHTML = "";
+      window.gameState = state;
+      window.risquePhases.attack.mount(stageHost, {
+        onLog: function (msg, data) {
+          logEvent(msg, data);
+        }
+      });
+      refreshVisuals("Attack mounted (same-document)");
+      if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+        try {
+          window.risqueMirrorPushGameState();
+        } catch (eMpAtk) {}
+      }
+      try {
+        logEvent("Soft navigate (same document)", { phase: ph, url: nextUrl });
+      } catch (eLAtk) {}
+      return true;
+    }
+
+    if (ph === "reinforce") {
+      phaseLabelEl.textContent = "Phase: reinforce";
+      appEl.innerHTML = "";
+      window.gameState = state;
+      window.risquePhases.reinforce.mount(stageHost, {
+        onLog: function (msg, data) {
+          logEvent(msg, data);
+        }
+      });
+      refreshVisuals("Reinforce mounted (same-document)");
+      if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+        try {
+          window.risqueMirrorPushGameState();
+        } catch (eMpRf) {}
+      }
+      try {
+        logEvent("Soft navigate (same document)", { phase: ph, url: nextUrl });
+      } catch (eLRf) {}
+      return true;
+    }
+
+    if (ph === "receivecard") {
+      phaseLabelEl.textContent = "Phase: receive card";
+      appEl.innerHTML = "";
+      window.gameState = state;
+      window.risquePhases.receivecard.mount(stageHost, {
+        onLog: function (msg, data) {
+          logEvent(msg, data);
+        }
+      });
+      refreshVisuals("Receive card mounted (same-document)");
+      if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+        try {
+          window.risqueMirrorPushGameState();
+        } catch (eMpRc) {}
+      }
+      try {
+        logEvent("Soft navigate (same document)", { phase: ph, url: nextUrl });
+      } catch (eLRc) {}
+      return true;
+    }
+
+    if (ph === "conquer") {
+      phaseLabelEl.textContent = "Phase: conquer";
+      appEl.innerHTML = "";
+      window.gameState = state;
+      window.risquePhases.conquer.mount(stageHost, {
+        onLog: function (msg, data) {
+          logEvent(msg, data);
+        }
+      });
+      refreshVisuals("Conquer mounted (same-document)");
+      if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+        try {
+          window.risqueMirrorPushGameState();
+        } catch (eMpCq) {}
+      }
+      try {
+        logEvent("Soft navigate (same document)", { phase: ph, url: nextUrl });
+      } catch (eLCq) {}
+      return true;
+    }
+
+    if (ph === "con-cardtransfer") {
+      phaseLabelEl.textContent = "Phase: con-cardtransfer";
+      appEl.innerHTML = "";
+      window.gameState = state;
+      window.risquePhases.conCardtransfer.mount(stageHost, {
+        onLog: function (msg, data) {
+          logEvent(msg, data);
+        }
+      });
+      refreshVisuals("Con-cardtransfer mounted (same-document)");
+      if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+        try {
+          window.risqueMirrorPushGameState();
+        } catch (eMpCct) {}
+      }
+      try {
+        logEvent("Soft navigate (same document)", { phase: ph, url: nextUrl });
+      } catch (eLCct) {}
+      return true;
+    }
+
+    if (ph === "con-cardplay") {
+      var lnSoft =
+        legacyNext != null && String(legacyNext).trim() !== ""
+          ? legacyNext
+          : "game.html?phase=con-income";
+      risqueMountCardplayShellSameDocument({ cardplayLegacyNext: lnSoft });
+      if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+        try {
+          window.risqueMirrorPushGameState();
+        } catch (eMpCcp) {}
+      }
+      try {
+        logEvent("Soft navigate (same document)", { phase: ph, url: nextUrl });
+      } catch (eLCcp) {}
+      return true;
+    }
+
+    if (ph === "con-deploy") {
+      phaseLabelEl.textContent = "Phase: con-deploy";
+      appEl.innerHTML = '<p class="muted">Deployment — use the map overlay.</p>';
+      window.gameState = state;
+      window.risquePhases.deploy.runContinentalDeploy(stageHost, {
+        onLog: function (msg, data) {
+          logEvent(msg, data);
+        }
+      });
+      refreshVisuals("Con-deploy mounted (same-document)");
+      if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+        try {
+          window.risqueMirrorPushGameState();
+        } catch (eMpCd) {}
+      }
+      try {
+        logEvent("Soft navigate (same document)", { phase: ph, url: nextUrl });
+      } catch (eLCd) {}
+      return true;
+    }
+
+    if (ph === "con-transfertroops") {
+      phaseLabelEl.textContent = "Phase: con-transfertroops";
+      appEl.innerHTML = "";
+      window.gameState = state;
+      window.risquePhases.conTransfertroops.mount(stageHost, {
+        onLog: function (msg, data) {
+          logEvent(msg, data);
+        }
+      });
+      refreshVisuals("Con-transfertroops mounted (same-document)");
+      if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+        try {
+          window.risqueMirrorPushGameState();
+        } catch (eMpCtt) {}
+      }
+      try {
+        logEvent("Soft navigate (same document)", { phase: ph, url: nextUrl });
+      } catch (eLCtt) {}
+      return true;
+    }
+
+    if (ph === "con-income") {
+      phaseLabelEl.textContent = "Phase: con-income";
+      appEl.innerHTML = '<p class="muted">Continental income — use the map overlay.</p>';
+      window.gameState = state;
+      if (
+        window.risquePhases &&
+        window.risquePhases.income &&
+        typeof window.risquePhases.income.runConquerIncome === "function"
+      ) {
+        window.risquePhases.income.runConquerIncome(stageHost, {
+          onLog: function (msg, data) {
+            logEvent(msg, data);
+          }
+        });
+      }
+      refreshVisuals("Con-income mounted (same-document)");
+    } else if (ph === "income") {
+      phaseLabelEl.textContent = "Phase: income";
+      appEl.innerHTML = '<p class="muted">Income — use the map overlay.</p>';
+      window.gameState = state;
+      if (
+        window.risquePhases &&
+        window.risquePhases.income &&
+        typeof window.risquePhases.income.mount === "function"
+      ) {
+        window.risquePhases.income.mount(stageHost, {
+          legacyNext: query.get("legacyNext") || "game.html?phase=deploy&kind=turn",
+          onLog: function (msg, data) {
+            logEvent(msg, data);
+          }
+        });
+      }
+      refreshVisuals("Income mounted (same-document)");
+    }
+
+    if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+      try {
+        window.risqueMirrorPushGameState();
+      } catch (eMp2) {}
+    }
+
+    try {
+      logEvent("Soft navigate (same document)", { phase: ph, url: nextUrl });
+    } catch (eL2) {}
+    return true;
+  }
+
+  window.risqueNavigateGameHtmlSoft = risqueNavigateGameHtmlSoft;
 
   /**
    * risqueAutoPublic=1: popup blockers reject window.open from timers.
@@ -9265,8 +10221,10 @@
     loadBtn.tabIndex = 0;
   }
 
-  var __risqueGracePickJsonCurrent = null;
-  var __risqueGracePickIndexCurrent = -1;
+  var __risqueGracePickJsonPrevPhase = null;
+  var __risqueGracePickIndexPrevPhase = -1;
+  var __risqueGracePickJsonPhaseStart = null;
+  var __risqueGracePickIndexPhaseStart = -1;
   var __risqueGracePickJsonUndo = null;
   var __risqueGracePickIndexUndo = -1;
   var __risqueGracePickJsonCycle = null;
@@ -9284,11 +10242,12 @@
     "</div>" +
     '<div id="risque-grace-host-screen-pick" class="risque-grace-host-screen" hidden>' +
     '<p class="risque-grace-host-title">Grace rollback</p>' +
-    '<p class="risque-grace-host-desc">Choose rollback mode.</p>' +
+    '<p class="risque-grace-host-desc">Rewind to a saved bookmark from this session. Undo uses the last write before your latest change (same tab).</p>' +
     '<p id="risque-grace-host-pick-warn" class="risque-grace-host-pick-warn" hidden></p>' +
-    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-undo" disabled>1) Undo (last action)</button>' +
-    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-current" disabled>2) Roll back phase</button>' +
-    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-cycle" disabled>3) Complete player cycle</button>' +
+    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-undo" disabled>1) Undo last save</button>' +
+    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-phase-start" disabled>2) Start of this phase</button>' +
+    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-prev-phase" disabled>3) End of previous phase</button>' +
+    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-cycle" disabled>4) Start of turn (cardplay)</button>' +
     '<button type="button" class="risque-grace-host-btn" id="risque-grace-host-pick-cancel">Cancel</button>' +
     "</div>" +
     '<div id="risque-grace-host-screen-confirm" class="risque-grace-host-screen" hidden>' +
@@ -9307,6 +10266,8 @@
       existing &&
       (!document.getElementById("risque-grace-host-pick-warn") ||
         !document.getElementById("risque-grace-host-opt-undo") ||
+        !document.getElementById("risque-grace-host-opt-phase-start") ||
+        !document.getElementById("risque-grace-host-opt-prev-phase") ||
         !document.getElementById("risque-grace-host-opt-cycle"))
     ) {
       existing.parentNode.removeChild(existing);
@@ -9337,18 +10298,25 @@
 
   function graceUpdatePickScreenButtonsAndWarn() {
     var b0 = document.getElementById("risque-grace-host-opt-undo");
-    var b1 = document.getElementById("risque-grace-host-opt-current");
+    var b1 = document.getElementById("risque-grace-host-opt-phase-start");
+    var b2 = document.getElementById("risque-grace-host-opt-prev-phase");
     var b3 = document.getElementById("risque-grace-host-opt-cycle");
     var warn = document.getElementById("risque-grace-host-pick-warn");
     if (b0) b0.disabled = !__risqueGracePickJsonUndo;
-    if (b1) b1.disabled = !__risqueGracePickJsonCurrent;
+    if (b1) b1.disabled = !__risqueGracePickJsonPhaseStart;
+    if (b2) b2.disabled = !__risqueGracePickJsonPrevPhase;
     if (b3) b3.disabled = !__risqueGracePickJsonCycle;
     if (warn) {
       var arr = window.__risqueGraceCardplayStarts;
       var noArr = !Array.isArray(arr) || !arr.length;
-      var noSnap = !__risqueGracePickJsonUndo && !__risqueGracePickJsonCurrent && !__risqueGracePickJsonCycle;
+      var noSnap =
+        !__risqueGracePickJsonUndo &&
+        !__risqueGracePickJsonPhaseStart &&
+        !__risqueGracePickJsonPrevPhase &&
+        !__risqueGracePickJsonCycle;
       if (noArr || noSnap) {
-        warn.textContent = "Are you fuckin kidding me?";
+        warn.textContent =
+          "No Grace bookmarks yet for this session — play a few moments, or reload may clear Undo until the next save.";
         warn.hidden = false;
       } else {
         warn.textContent = "";
@@ -9377,21 +10345,29 @@
     }
     var gs = getActiveGameStateSnapshot();
     var undoSnap = graceFindUndoSnapshot(gs);
+    var phaseStartSnap = graceFindCurrentPhaseStartSnapshot(gs);
     var prevSnap = graceFindPreviousPhaseSnapshot(gs);
     var cycleSnap = graceFindPlayerCycleSnapshot(gs);
-    var j1 = prevSnap && prevSnap.entry && typeof prevSnap.entry.json === "string" ? prevSnap.entry.json : null;
     var j0 = undoSnap && undoSnap.entry && typeof undoSnap.entry.json === "string" ? undoSnap.entry.json : null;
+    var jPs =
+      phaseStartSnap && phaseStartSnap.entry && typeof phaseStartSnap.entry.json === "string"
+        ? phaseStartSnap.entry.json
+        : null;
+    var jPrev =
+      prevSnap && prevSnap.entry && typeof prevSnap.entry.json === "string" ? prevSnap.entry.json : null;
     var j3 = cycleSnap && cycleSnap.entry && typeof cycleSnap.entry.json === "string" ? cycleSnap.entry.json : null;
     __risqueGracePickJsonUndo = j0;
     __risqueGracePickIndexUndo = undoSnap && Number.isInteger(undoSnap.index) ? undoSnap.index : -1;
-    __risqueGracePickJsonCurrent = j1;
-    __risqueGracePickIndexCurrent = prevSnap && Number.isInteger(prevSnap.index) ? prevSnap.index : -1;
+    __risqueGracePickJsonPhaseStart = jPs;
+    __risqueGracePickIndexPhaseStart = phaseStartSnap && Number.isInteger(phaseStartSnap.index) ? phaseStartSnap.index : -1;
+    __risqueGracePickJsonPrevPhase = jPrev;
+    __risqueGracePickIndexPrevPhase = prevSnap && Number.isInteger(prevSnap.index) ? prevSnap.index : -1;
     __risqueGracePickJsonCycle = j3;
     __risqueGracePickIndexCycle = cycleSnap && Number.isInteger(cycleSnap.index) ? cycleSnap.index : -1;
     var pick = document.getElementById("risque-grace-host-screen-pick");
     if (pick) pick.hidden = false;
     graceUpdatePickScreenButtonsAndWarn();
-    if (!arr.length || (!j0 && !j1 && !j3)) {
+    if (!arr.length || (!j0 && !jPs && !jPrev && !j3)) {
       logEvent("Grace: opened panel (no usable snapshots)");
     } else {
       logEvent("Grace: opened rollback options panel");
@@ -9454,7 +10430,7 @@
         persistGracePhaseSnapshotsToStorage(window.__risqueGraceCardplayStarts);
       }
     }
-    window.__risqueGraceLastUndoJson = null;
+    clearGraceLastUndoSession();
     window.gameState = normalized;
     state = normalized;
     __risqueGracePendingJson = null;
@@ -9491,19 +10467,29 @@
         if (t.disabled) return;
         if (!__risqueGracePickJsonUndo) return;
         graceShowConfirmScreen(
-          "Undo the latest committed action only.",
+          "Restore the game to one save ago — the last point before your most recent automatic save (same as one Undo step).",
           __risqueGracePickJsonUndo,
           __risqueGracePickIndexUndo
         );
         return;
       }
-      if (id === "risque-grace-host-opt-current") {
+      if (id === "risque-grace-host-opt-phase-start") {
         if (t.disabled) return;
-        if (!__risqueGracePickJsonCurrent) return;
+        if (!__risqueGracePickJsonPhaseStart) return;
         graceShowConfirmScreen(
-          "Roll back to the start of the previous phase boundary only. The board and hands match that moment.",
-          __risqueGracePickJsonCurrent,
-          __risqueGracePickIndexCurrent
+          "Rewind to the start of the current phase for this player (for example, undo reinforcement moves without leaving reinforce).",
+          __risqueGracePickJsonPhaseStart,
+          __risqueGracePickIndexPhaseStart
+        );
+        return;
+      }
+      if (id === "risque-grace-host-opt-prev-phase") {
+        if (t.disabled) return;
+        if (!__risqueGracePickJsonPrevPhase) return;
+        graceShowConfirmScreen(
+          "Jump back to the end of the previous phase — the board state from before you entered this phase (e.g. after attack, before reinforce).",
+          __risqueGracePickJsonPrevPhase,
+          __risqueGracePickIndexPrevPhase
         );
         return;
       }
@@ -9511,7 +10497,7 @@
         if (t.disabled) return;
         if (!__risqueGracePickJsonCycle) return;
         graceShowConfirmScreen(
-          "Restart this player's cycle from cardplay start.",
+          "Go back to the beginning of this player's turn at card play (same player, start of their cycle).",
           __risqueGracePickJsonCycle,
           __risqueGracePickIndexCycle
         );
@@ -10252,6 +11238,13 @@
       window.risqueMirrorPushGameState();
     }
   } else if (
+    forcedPhase === "con-cardplay" &&
+    window.risquePhases &&
+    window.risquePhases.cardplay &&
+    typeof window.risquePhases.cardplay.mount === "function"
+  ) {
+    risqueBootMountRuntimeCardplayContinental();
+  } else if (
     state.phase === "conquer" &&
     forcedPhase !== "login" &&
     forcedPhase !== "playerSelect" &&
@@ -10284,6 +11277,27 @@
       window.risqueMirrorPushGameState();
     }
   } else if (
+    state.phase === "con-cardplay" &&
+    forcedPhase !== "login" &&
+    forcedPhase !== "playerSelect" &&
+    forcedPhase !== "deal" &&
+    forcedPhase !== "deploy1" &&
+    forcedPhase !== "deploy2" &&
+    forcedPhase !== "deploy" &&
+    forcedPhase !== "attack" &&
+    forcedPhase !== "privacyGate" &&
+    forcedPhase !== "reinforce" &&
+    forcedPhase !== "receivecard" &&
+    forcedPhase !== "conquer" &&
+    forcedPhase !== "cardplay" &&
+    forcedPhase !== "income" &&
+    forcedPhase !== "con-income" &&
+    window.risquePhases &&
+    window.risquePhases.cardplay &&
+    typeof window.risquePhases.cardplay.mount === "function"
+  ) {
+    risqueBootMountRuntimeCardplayContinental();
+  } else if (
     state.phase === "cardplay" &&
     forcedPhase !== "login" &&
     forcedPhase !== "playerSelect" &&
@@ -10301,77 +11315,18 @@
     window.risquePhases.cardplay &&
     typeof window.risquePhases.cardplay.mount === "function"
   ) {
-    document.body.classList.add("risque-setup-fullstage");
-    phaseLabelEl.textContent = "Phase: card play";
-    appEl.innerHTML = "<p class=\"muted\">Card play — use the map overlay.</p>";
-    window.gameState = state;
-
-    function mountCardplayAfterOptionalHandoff() {
-      window.risquePhases.cardplay.mount(stageHost, {
-        legacyNext: legacyNext,
-        onLog: function (msg, data) {
-          logEvent(msg, data);
-        }
-      });
-      refreshVisuals("Card play mounted");
-      if (typeof window.__risquePostReceiveBlackoutHide === "function") {
-        var hideBlk = window.__risquePostReceiveBlackoutHide;
-        window.__risquePostReceiveBlackoutHide = null;
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () {
-            try {
-              hideBlk();
-            } catch (eBlk) {
-              /* ignore */
-            }
-          });
-        });
-      }
-    }
-
-    if (skipCardplayEntryHandoff && !window.risqueDisplayIsPublic) {
-      try {
-        var uPost = new URL(window.location.href);
-        if (uPost.searchParams.has("postReceive")) {
-          uPost.searchParams.delete("postReceive");
-          var postQs = uPost.searchParams.toString();
-          window.history.replaceState(
-            null,
-            "",
-            uPost.pathname + (postQs ? "?" + postQs : "") + uPost.hash
-          );
-        }
-      } catch (ePostStrip) {
-        /* ignore */
-      }
-      mountCardplayAfterOptionalHandoff();
-    } else if (
-      !window.risqueDisplayIsPublic &&
-      window.risquePhases &&
-      window.risquePhases.privacyGate &&
-      typeof window.risquePhases.privacyGate.mountHostTabletHandoff === "function"
-    ) {
-      var hostName = (state.currentPlayer || "the current player").toString();
-      var cardHandoffMsg =
-        "Card play\n\nHand the tablet to " +
-        hostName +
-        ".\n\nOnly this player should tap Continue.";
-      window.risquePhases.privacyGate.mountHostTabletHandoff({
-        message: cardHandoffMsg,
-        onContinue: mountCardplayAfterOptionalHandoff,
-        onLog: function (line) {
-          logEvent(line);
-        }
-      });
-    } else {
-      mountCardplayAfterOptionalHandoff();
-    }
-  } else if (forcedPhase === "con-income" && window.risquePhases && window.risquePhases.conIncome) {
+    risqueMountCardplayShellSameDocument({});
+  } else if (
+    forcedPhase === "con-income" &&
+    window.risquePhases &&
+    window.risquePhases.income &&
+    typeof window.risquePhases.income.runConquerIncome === "function"
+  ) {
     document.body.classList.add("risque-setup-fullstage");
     phaseLabelEl.textContent = "Phase: con-income";
     appEl.innerHTML = "<p class=\"muted\">Continental income — use the map overlay.</p>";
     window.gameState = state;
-    window.risquePhases.conIncome.mount(stageHost, {
+    window.risquePhases.income.runConquerIncome(stageHost, {
       onLog: function (msg, data) {
         logEvent(msg, data);
       }
@@ -10398,14 +11353,14 @@
     forcedPhase !== "cardplay" &&
     forcedPhase !== "income" &&
     window.risquePhases &&
-    window.risquePhases.conIncome &&
-    typeof window.risquePhases.conIncome.mount === "function"
+    window.risquePhases.income &&
+    typeof window.risquePhases.income.runConquerIncome === "function"
   ) {
     document.body.classList.add("risque-setup-fullstage");
     phaseLabelEl.textContent = "Phase: con-income";
     appEl.innerHTML = "<p class=\"muted\">Continental income — use the map overlay.</p>";
     window.gameState = state;
-    window.risquePhases.conIncome.mount(stageHost, {
+    window.risquePhases.income.runConquerIncome(stageHost, {
       onLog: function (msg, data) {
         logEvent(msg, data);
       }
@@ -10415,6 +11370,58 @@
       requestAnimationFrame(function () {
         risquePublicMirrorGameState(window.gameState);
       });
+    }
+  } else if (
+    forcedPhase === "con-deploy" &&
+    window.risquePhases &&
+    window.risquePhases.deploy &&
+    typeof window.risquePhases.deploy.runContinentalDeploy === "function"
+  ) {
+    document.body.classList.add("risque-setup-fullstage");
+    phaseLabelEl.textContent = "Phase: con-deploy";
+    appEl.innerHTML = '<p class="muted">Deployment — use the map overlay.</p>';
+    window.gameState = state;
+    window.risquePhases.deploy.runContinentalDeploy(stageHost, {
+      onLog: function (msg, data) {
+        logEvent(msg, data);
+      }
+    });
+    refreshVisuals("Con-deploy mounted");
+    if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+      window.risqueMirrorPushGameState();
+    }
+  } else if (
+    state.phase === "con-deploy" &&
+    forcedPhase !== "login" &&
+    forcedPhase !== "playerSelect" &&
+    forcedPhase !== "deal" &&
+    forcedPhase !== "deploy1" &&
+    forcedPhase !== "deploy2" &&
+    forcedPhase !== "deploy" &&
+    forcedPhase !== "attack" &&
+    forcedPhase !== "privacyGate" &&
+    forcedPhase !== "reinforce" &&
+    forcedPhase !== "receivecard" &&
+    forcedPhase !== "conquer" &&
+    forcedPhase !== "cardplay" &&
+    forcedPhase !== "income" &&
+    forcedPhase !== "con-income" &&
+    window.risquePhases &&
+    window.risquePhases.deploy &&
+    typeof window.risquePhases.deploy.runContinentalDeploy === "function"
+  ) {
+    document.body.classList.add("risque-setup-fullstage");
+    phaseLabelEl.textContent = "Phase: con-deploy";
+    appEl.innerHTML = '<p class="muted">Deployment — use the map overlay.</p>';
+    window.gameState = state;
+    window.risquePhases.deploy.runContinentalDeploy(stageHost, {
+      onLog: function (msg, data) {
+        logEvent(msg, data);
+      }
+    });
+    refreshVisuals("Con-deploy mounted (from saved phase)");
+    if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+      window.risqueMirrorPushGameState();
     }
   } else if (
     state.phase === "income" &&

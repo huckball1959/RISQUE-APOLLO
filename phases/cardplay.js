@@ -24,7 +24,7 @@
     if (document.getElementById(STYLE_ID)) return;
     var s = document.createElement("style");
     s.id = STYLE_ID;
-    s.textContent = ".cardplay-player-name { font-family: Arial, sans-serif; font-size: 20px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; text-shadow: 2px 2px 2px rgba(0, 0, 0, 0.7); position: absolute; left: 1110px; top: 250px; z-index: 10; pointer-events: none; } .cardplay-message { font-family: Arial, sans-serif; font-size: 24px; font-weight: bold; color: #ffffff; position: absolute; left: 1110px; top: 900px; text-align: left; z-index: 10; pointer-events: none; } .cardplay-button-container { position: absolute; top: 309px; left: 1105px; display: flex; flex-direction: column; align-items: flex-start; width: 258px; z-index: 10; } .cardplay-button { width: 258px; height: 36px; margin: 10px 0; background: #000000; color: #ffffff; font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; text-align: center; border: none; border-radius: 4px; cursor: pointer; z-index: 10; } .cardplay-button.enabled { background: #000000; color: #ffffff; opacity: 1; } .cardplay-button:hover:not(:disabled) { background: #1a1a1a; color: #ffffff; } .cardplay-button:active:not(:disabled) { transform: scale(0.95); } .cardplay-button:disabled { background: #000000; color: #ffffff; opacity: 0.5; cursor: not-allowed; } .cardplay-button.dissolve-in { opacity: 0; animation: dissolveIn 1s forwards; } .card { position: absolute; z-index: 10; cursor: pointer; pointer-events: auto; } .card.selected { border: 3px solid #ffff00; } .card.played { opacity: 0.5; cursor: not-allowed; } .card.processing { border: 3px solid #ff0000; } .popup { position: absolute; left: 870px; top: 400px; min-width: 280px; max-width: 480px; width: max-content; box-sizing: border-box; background: #ffffff; border: 2px solid #000000; padding: 14px; z-index: 3; display: none; font-family: Arial, sans-serif; font-size: 14px; color: #000000; box-shadow: 0 4px 14px rgba(0,0,0,0.3); } .popup * { color: inherit; } .popup-message { margin-bottom: 12px; color: #000000 !important; font-weight: 700; font-size: 15px; line-height: 1.35; } .popup-select, .popup-input { width: 100%; margin-bottom: 10px; display: none; color: #000000 !important; background: #ffffff; border: 2px solid #000000; font-size: 14px; padding: 6px 8px; font-weight: 600; } .popup-button { margin-right: 10px; margin-top: 6px; background: #1a1a1a; color: #ffffff !important; border: 2px solid #000000; border-radius: 6px; padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; } .popup-button:hover:not(:disabled) { background: #333333; color: #ffffff !important; } @keyframes dissolveIn { from { opacity: 0; } to { opacity: 1; } } .popup{z-index:100050!important;color:#000000!important;}";
+    s.textContent = ".cardplay-player-name { font-family: Arial, sans-serif; font-size: 20px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; text-shadow: 2px 2px 2px rgba(0, 0, 0, 0.7); position: absolute; left: 1110px; top: 250px; z-index: 10; pointer-events: none; } .cardplay-message { font-family: Arial, sans-serif; font-size: 24px; font-weight: bold; color: #ffffff; position: absolute; left: 1110px; top: 900px; text-align: left; z-index: 10; pointer-events: none; } .cardplay-button-container { position: absolute; top: 309px; left: 1105px; display: flex; flex-direction: column; align-items: flex-start; width: 258px; z-index: 10; } .cardplay-button { width: 258px; height: 36px; margin: 10px 0; background: #000000; color: #ffffff; font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; text-align: center; border: none; border-radius: 4px; cursor: pointer; z-index: 10; } .cardplay-button.enabled { background: #000000; color: #ffffff; opacity: 1; } .cardplay-button:hover:not(:disabled) { background: #1a1a1a; color: #ffffff; } .cardplay-button:active:not(:disabled) { transform: scale(0.95); } .cardplay-button:disabled { background: #000000; color: #ffffff; opacity: 0.5; cursor: not-allowed; } .cardplay-button.dissolve-in { opacity: 0; animation: dissolveIn 1s forwards; } .card { position: absolute; z-index: 10; cursor: pointer; pointer-events: auto; } .card.selected { border: 3px solid #ffff00; } .card.played { opacity: 0.5; cursor: not-allowed; } .card.processing { border: 3px solid #ff0000; } .popup { position: absolute; left: 870px; top: 400px; min-width: 280px; max-width: 480px; width: max-content; box-sizing: border-box; background: #ffffff; border: 2px solid #000000; padding: 14px; z-index: 3; display: none; font-family: Arial, sans-serif; font-size: 14px; color: #000000; box-shadow: 0 4px 14px rgba(0,0,0,0.3); } .popup * { color: inherit; } .popup-message { margin-bottom: 12px; color: #000000 !important; font-weight: 700; font-size: 15px; line-height: 1.35; } .popup-select, .popup-input { width: 100%; margin-bottom: 10px; display: none; color: #000000 !important; background: #ffffff; border: 2px solid #000000; font-size: 14px; padding: 6px 8px; font-weight: 600; } .popup-button { margin-right: 10px; margin-top: 6px; background: #1a1a1a; color: #ffffff !important; border: 2px solid #000000; border-radius: 6px; padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; } .popup-button:hover:not(:disabled) { background: #333333; color: #ffffff !important; } @keyframes dissolveIn { from { opacity: 0; } to { opacity: 1; } } .risque-map-freeze-svg{position:absolute;width:1920px;height:1080px;top:0;left:0;z-index:1;pointer-events:none;display:block;} .popup{z-index:100050!important;color:#000000!important;}";
     document.head.appendChild(s);
   }
 
@@ -224,17 +224,20 @@
      * @param {boolean} [skipMirrorPush] - If true, update host local state only. Used when leaving card play
      *   so the public TV keeps recap + risquePublicBookProcessing until income mirror arrives (otherwise the
      *   recap is wiped before the TV can animate).
+     * @param {boolean} [skipPersist] - If true, only mutate in-memory gameState (no localStorage).
      */
-    function clearCardplayPublicSpectator(skipMirrorPush) {
+    function clearCardplayPublicSpectator(skipMirrorPush, skipPersist) {
       if (!window.gameState) return;
       window.gameState.risquePublicCardplayPrimary = "";
       window.gameState.risquePublicCardplayReport = "";
       delete window.gameState.risquePublicCardplayBookCards;
       delete window.gameState.risquePublicBookProcessing;
       window.gameState.risquePublicCardplayHighlightLabels = [];
-      try {
-        localStorage.setItem("gameState", JSON.stringify(window.gameState));
-      } catch (eClr) {}
+      if (!skipPersist) {
+        try {
+          localStorage.setItem("gameState", JSON.stringify(window.gameState));
+        } catch (eClr) {}
+      }
       if (!skipMirrorPush && typeof window.risqueMirrorPushGameState === "function") {
         window.risqueMirrorPushGameState();
       }
@@ -272,6 +275,90 @@
       if (!window.gameState) return;
       delete window.gameState.risqueCardplayUseFrozenPublicMirror;
       delete window.gameState.risqueCardplayPublicMirrorSnapshot;
+    }
+    /** Clears cardplay-only spectator/recap/snapshot fields. Caller must set phase to income first (avoids cardplay+no-snapshot map glitches). */
+    function applyCardplayIncomeExitToDisk(disk) {
+      if (!disk || typeof disk !== "object") return;
+      disk.risquePublicCardplayPrimary = "";
+      disk.risquePublicCardplayReport = "";
+      delete disk.risquePublicCardplayBookCards;
+      delete disk.risquePublicBookProcessing;
+      disk.risquePublicCardplayHighlightLabels = [];
+      delete disk.risqueCardplayUseFrozenPublicMirror;
+      delete disk.risqueCardplayPublicMirrorSnapshot;
+      delete disk.risquePublicCardplayRecap;
+      delete disk.risquePublicCardplayRecapAckRequiredSeq;
+      delete disk.risqueCardplayTvRecapPublished;
+      disk.risqueCardplaySuppressPublicSpectator = false;
+    }
+    /**
+     * Host only: freeze-frame during cardplay→income. core.renderTerritories uses
+     * Map SVG must stay inside #canvas — global .svg-overlay queries break when freeze clones exist. If the freeze clone keeps
+     * class svg-overlay, a race/order quirk can repaint the freeze and wipe markers for a frame.
+     * Fix: strip svg-overlay from the clone SVG (replace with .risque-map-freeze-svg). Append freeze last on
+     * body; scale from getBoundingClientRect so layout matches the live board (single scale, top-left origin).
+     */
+    function installCardplayIncomeTransitionHold() {
+      if (window.risqueDisplayIsPublic) return;
+      injectStyles();
+      var holdId = "risque-income-transition-hold";
+      if (document.getElementById(holdId)) return;
+      var canvasEl = document.getElementById("canvas");
+      if (!canvasEl) return;
+      try {
+        var rect = canvasEl.getBoundingClientRect();
+        var sc = rect.width / 1920;
+        if (!Number.isFinite(sc) || sc <= 0) sc = 1;
+
+        var clone = canvasEl.cloneNode(true);
+        clone.removeAttribute("id");
+        clone.id = holdId;
+        clone.setAttribute("data-risque-transition-freeze", "1");
+        clone.setAttribute("aria-hidden", "true");
+
+        var frozenSvg = clone.querySelector(".svg-overlay");
+        if (frozenSvg) {
+          frozenSvg.classList.remove("svg-overlay", "visible");
+          frozenSvg.classList.add("risque-map-freeze-svg");
+        }
+
+        clone.style.cssText =
+          "position:fixed;" +
+          "left:" +
+          Math.round(rect.left) +
+          "px;" +
+          "top:" +
+          Math.round(rect.top) +
+          "px;" +
+          "width:1920px;" +
+          "height:1080px;" +
+          "margin:0;" +
+          "padding:0;" +
+          "pointer-events:none;" +
+          "z-index:2147483646;" +
+          "transform:scale(" +
+          sc +
+          ");" +
+          "transform-origin:top left;" +
+          "transition:none !important;" +
+          "opacity:1;" +
+          "visibility:visible;" +
+          "display:block;" +
+          "background:#000000;";
+
+        document.body.appendChild(clone);
+
+        canvasEl.style.transition = "none";
+        canvasEl.style.visibility = "hidden";
+        canvasEl.setAttribute("aria-hidden", "true");
+      } catch (eHold) {
+        var fb = document.createElement("div");
+        fb.id = holdId;
+        fb.setAttribute("aria-hidden", "true");
+        fb.style.cssText =
+          "position:fixed;inset:0;z-index:2147483646;background:#000000;pointer-events:none;";
+        document.body.appendChild(fb);
+      }
     }
     function wipeCardplayPublicMapHighlight() {
       if (!window.gameState) return;
@@ -838,24 +925,21 @@
 
     function proceedCardplayToIncome(delayMs) {
       if (!window.gameState) return;
+      if (!window.risqueDisplayIsPublic) {
+        window.__risqueSuppressHostMapRedraw = true;
+      }
       stopHostIncomeGateAckPoll();
       window.__risqueCardplayHostIncomeOnly = false;
-      clearCardplayPublicSpectator(true);
-      clearCardplayPublicBoardSnapshot();
-      delete window.gameState.risquePublicCardplayRecap;
-      delete window.gameState.risquePublicCardplayRecapAckRequiredSeq;
-      delete window.gameState.risqueCardplayTvRecapPublished;
-      window.gameState.risqueCardplaySuppressPublicSpectator = false;
       var gs = window.gameState;
       var _raw = mountOpts.legacyNext;
       var nav =
         window.risquePostCardplayNavigator && typeof window.risquePostCardplayNavigator.resolveAfterRuntimeCardplay === "function"
           ? window.risquePostCardplayNavigator.resolveAfterRuntimeCardplay(gs, _raw)
           : { phase: "income", href: "game.html?phase=income" };
-      /* Keep phase as cardplay until finishLeaveCardplay — setting income early while cardplay DOM is still
-       * mounted caused host HUD/map glitches and matched a long default delay before navigation. */
       var _nextLegacy;
-      if (nav.phase === "con-income") {
+      if (nav.phase === "deploy") {
+        _nextLegacy = nav.href || "game.html?phase=deploy&kind=turn";
+      } else if (nav.phase === "con-income") {
         var rs = _raw != null ? String(_raw) : "";
         if (rs.indexOf("phase=con-income") !== -1) {
           _nextLegacy = rs.indexOf("game.html") === 0 ? rs : "game.html?" + rs.replace(/^\?/, "");
@@ -888,26 +972,55 @@
       if (!Number.isFinite(wait) || wait < 0) wait = 0;
 
       function finishLeaveCardplay() {
-        try {
-          gs.phase = nav.phase;
-          localStorage.setItem("gameState", JSON.stringify(gs));
-        } catch (eS) {
-          /* ignore */
+        function persistAndGo() {
+          function doSave() {
+            try {
+              gs.phase = nav.phase;
+              applyCardplayIncomeExitToDisk(gs);
+              localStorage.setItem("gameState", JSON.stringify(gs));
+            } catch (eS) {
+              try {
+                gs.phase = nav.phase;
+                applyCardplayIncomeExitToDisk(gs);
+                localStorage.setItem("gameState", JSON.stringify(gs));
+              } catch (e2) {
+                /* ignore */
+              }
+            }
+          }
+          doSave();
+          /* Fundamental transition: stay on same document for income — no full reload / script re-init (game-shell). */
+          if (
+            !window.risqueDisplayIsPublic &&
+            typeof window.risqueNavigateGameHtmlSoft === "function" &&
+            window.risqueNavigateGameHtmlSoft(_nextLegacy)
+          ) {
+            return;
+          }
+          installCardplayIncomeTransitionHold();
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+              doSave();
+              try {
+                try {
+                  sessionStorage.setItem("risquePhaseEntryVeil", "1");
+                } catch (eVeilSt) {}
+                window.location.href = _nextLegacy;
+              } catch (eNav) {
+                window.location.assign(_nextLegacy);
+              }
+            });
+          });
         }
-        try {
-          window.location.href = _nextLegacy;
-        } catch (eNav) {
-          window.location.assign(_nextLegacy);
-        }
+        requestAnimationFrame(function () {
+          persistAndGo();
+        });
       }
 
       if (wait > 0) {
         setTimeout(finishLeaveCardplay, wait);
       } else {
-        /* Two animation frames: commit the last map + panel paint before unload (avoids “empty” frame). */
-        requestAnimationFrame(function () {
-          requestAnimationFrame(finishLeaveCardplay);
-        });
+        finishLeaveCardplay();
       }
     }
 
@@ -1081,13 +1194,13 @@
         bAerialConfirm.disabled = !decisionButtonsEnabled;
         bAerialConfirm.title = decisionButtonsEnabled
           ? "Confirm aerial attack processing."
-          : "Waiting for public wildcard processing to reach aerial step.";
+          : "Waiting for wildcard recap to reach the aerial step.";
       }
       if (bAerialCounter) {
         bAerialCounter.disabled = !decisionButtonsEnabled;
         bAerialCounter.title = decisionButtonsEnabled
           ? "Choose this if someone calls a valid counter."
-          : "Waiting for public wildcard processing to reach aerial step.";
+          : "Waiting for wildcard recap to reach the aerial step.";
       }
       if (aerialSelect) {
         var players = cardplayGetOpposingPlayers();
@@ -1111,19 +1224,19 @@
         autoMsg.textContent = ackOk
           ? "Card processing complete. Moving to income..."
           : pendingAerial && needAck && !aerialReady
-            ? "Waiting for public wildcard processing before aerial decision."
+            ? "Waiting for wildcard recap before aerial decision."
           : !publicDone
-            ? "Waiting for public card processing to finish."
+            ? "Waiting for card processing recap to finish."
           : counterHold
-            ? "Waiting for public counter animation to finish."
+            ? "Waiting for counter animation to finish."
             : "Card processing in progress...";
       }
       if (ackOk) {
         if (!window.__risqueHostAutoIncomeTimer) {
           window.__risqueHostAutoIncomeTimer = setTimeout(function () {
             window.__risqueHostAutoIncomeTimer = null;
-            proceedCardplayToIncome(300);
-          }, 1700);
+            proceedCardplayToIncome(0);
+          }, 140);
         }
       } else if (window.__risqueHostAutoIncomeTimer) {
         clearTimeout(window.__risqueHostAutoIncomeTimer);
@@ -1153,7 +1266,7 @@
             window.gameState && window.gameState.risquePublicCardplayRecapAckRequiredSeq != null;
           b.disabled = !!(needAckB && !cardplayRecapAckSatisfied());
           b.title = b.disabled
-            ? "Wait until the public display finishes the card recap animation."
+            ? "Wait until the card recap animation finishes."
             : "Go to income when ready.";
         }
         return;
@@ -1165,7 +1278,7 @@
       if (bCompact) {
         bCompact.disabled = !cardplayRecapAckSatisfied();
         bCompact.title = bCompact.disabled
-          ? "Wait until the public display finishes the card recap animation."
+          ? "Wait until the card recap animation finishes."
           : "Go to income when ready.";
       }
     }
@@ -1603,7 +1716,10 @@
         logToStorage("cardplayInit map render error: " + (eMap0 && eMap0.message ? eMap0.message : String(eMap0)));
       }
       requestAnimationFrame(function () {
-        var svgOverlay = document.querySelector(".svg-overlay");
+        var svgOverlay =
+          typeof window.risqueGetCanvasSvgOverlay === "function"
+            ? window.risqueGetCanvasSvgOverlay()
+            : document.querySelector("#canvas .svg-overlay");
         logToStorage("Rendering markers, numbers, and stats", {
           svgContent: svgOverlay ? svgOverlay.innerHTML : "No SVG overlay"
         });
@@ -3573,6 +3689,13 @@
       if (typeof window.risqueMirrorPushGameState === "function") {
         window.risqueMirrorPushGameState();
       }
+      if (typeof window.risqueHostSyncCardplayTvRecapUi === "function") {
+        try {
+          window.risqueHostSyncCardplayTvRecapUi(window.gameState);
+        } catch (eHostRecapUi) {
+          /* ignore */
+        }
+      }
     }
 
     function refreshCardplayPublicHandCountMirror() {
@@ -3648,7 +3771,7 @@
         delete window.gameState.risqueCardplayTvRecapPublished;
         delete window.gameState.risquePublicCardplayRecapAckRequiredSeq;
       } catch (eSk) {}
-      proceedCardplayToIncome(250);
+      proceedCardplayToIncome(0);
     }
 
     async function handleCompactConfirmOrNext() {

@@ -17,6 +17,22 @@
     return window.risqueLoginRecoveryViaPrivacyUrl();
   }
 
+  /** Prefer same-document game.html navigation (no full reload); fallback fade or location. */
+  function navigateGameHtmlPreferSoft(url) {
+    try {
+      if (typeof window.risqueNavigateGameHtmlSoft === "function" && window.risqueNavigateGameHtmlSoft(url)) {
+        return;
+      }
+    } catch (eNav) {
+      /* ignore */
+    }
+    if (window.risqueNavigateWithFade) {
+      window.risqueNavigateWithFade(url);
+    } else {
+      window.location.href = url;
+    }
+  }
+
   function logLines(msg, logFn) {
     var ts = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
     var line = "[" + ts + "] [DealJS] " + msg;
@@ -154,11 +170,7 @@
         window.risqueRuntimeHud.setControlVoiceText("DEAL COMPLETE — NEXT: DEPLOY ORDER", "");
       }
       setTimeout(function () {
-        if (window.risqueNavigateWithFade) {
-          window.risqueNavigateWithFade("game.html?phase=playerSelect&selectKind=deployOrder");
-        } else {
-          window.location.href = "game.html?phase=playerSelect&selectKind=deployOrder";
-        }
+        navigateGameHtmlPreferSoft("game.html?phase=playerSelect&selectKind=deployOrder");
       }, 3000);
     }
 

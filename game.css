@@ -1649,6 +1649,17 @@ html.risque-view-public .risque-public-ghost-replay-save {
   display: none !important;
 }
 
+/* Recap shelf mounts inside #hud-main-panel — two IDs beat the five-class “hide main panel” rule above. */
+#runtime-hud-root.runtime-hud-root--cardplay-panel-only.runtime-hud-root--host-cardplay-recap #hud-main-panel {
+  display: flex !important;
+  flex-direction: column !important;
+  /* Take almost all column height (phase slot below must not flex-grow like normal cardplay). */
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
 .runtime-hud-root--cardplay-panel-only #hud-title-stack {
   margin-bottom: 0;
   padding-top: 0;
@@ -5176,7 +5187,7 @@ body[data-risque-phase="attack"] #hud-attack-chrome {
   word-break: break-word;
 }
 
-/* Public mirror: post-conquest card transfer (host con-cardtransfer.html) */
+/* Public mirror: post-conquest card transfer (host game.html ?phase=con-cardtransfer) */
 .ucp-voice-report--public-card-transfer {
   font-size: 16px;
   font-weight: 600;
@@ -5911,14 +5922,14 @@ html.risque-view-public body[data-risque-phase="receivecard"] #control-voice.ucp
   }
 }
 
-/* TV: first beat — marker grows (r ×1.92 in core.js) before halo + troop tween */
+/* Cardplay first beat — marker grows (r ×1.92 in core.js) before halo + troop tween; host + public. */
 .svg-overlay circle.territory-circle.risque-cardplay-public-swell {
   stroke: #fef9c3 !important;
   stroke-width: 4px !important;
   animation: risque-cardplay-swell-pulse 0.21s ease-out forwards;
 }
 
-/* TV: committed cardplay sequence — marker r ×1.5 in core.js (gameState.risquePublicCardplayHighlightLabels) */
+/* Cardplay sustained highlight — marker r ×1.5 in core.js (gameState.risquePublicCardplayHighlightLabels); host + public. */
 .svg-overlay circle.territory-circle.risque-cardplay-public-highlight {
   stroke: #fde68a !important;
   stroke-width: 4px !important;
@@ -5926,7 +5937,7 @@ html.risque-view-public body[data-risque-phase="receivecard"] #control-voice.ucp
   animation: risque-cardplay-halo-flash 1s ease-in-out infinite;
 }
 
-/* Host private draft — uses window.__risquePrivateCardplayHighlightLabels only (TV uses .risque-cardplay-public-highlight above). */
+/* Legacy / unused: host now uses the same gameState highlights as public (.risque-cardplay-public-* above). */
 .svg-overlay circle.territory-circle.risque-cardplay-private-highlight {
   stroke: #fef08a !important;
   stroke-width: 5px !important;
@@ -7919,6 +7930,315 @@ html.risque-view-public .runtime-hud-root:not(.runtime-hud-root--login) #hud-ban
 .risque-view-public .runtime-hud-root--public-cardplay-recap #risque-phase-content,
 .risque-view-public .runtime-hud-root--public-cardplay-recap .hud-phase-player-row {
   display: none !important;
+}
+
+/* Host: staged shelf + one-at-a-time processing (same DOM/engine as public). Keep #risque-phase-content
+ * and stats visible so income / continue controls stay reachable below the control column. */
+html.risque-view-host .runtime-hud-root--host-cardplay-recap,
+body.risque-view-host .runtime-hud-root--host-cardplay-recap {
+  bottom: 0;
+  min-height: 0;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* Match TV column foot: cardplay HUD normally leaves 30px underlay — use full stack during recap. */
+html.risque-view-host #runtime-hud-root.runtime-hud-root--cardplay-panel-only.runtime-hud-root--host-cardplay-recap,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--cardplay-panel-only.runtime-hud-root--host-cardplay-recap {
+  bottom: 0 !important;
+}
+
+html.risque-view-host .runtime-hud-root--host-cardplay-recap .hud-title-stack,
+body.risque-view-host .runtime-hud-root--host-cardplay-recap .hud-title-stack {
+  padding-top: 2px;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+html.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-main-panel,
+body.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-main-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  max-height: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px 20px !important;
+  box-sizing: border-box;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  gap: 0;
+}
+
+/* Income / continue lives here — do not let it flex-grow (default cardplay gives it flex:1 and steals half the column). */
+html.risque-view-host .runtime-hud-root--host-cardplay-recap.runtime-hud-root--cardplay-panel-only .risque-phase-content,
+body.risque-view-host .runtime-hud-root--host-cardplay-recap.runtime-hud-root--cardplay-panel-only .risque-phase-content {
+  flex: 0 1 auto !important;
+  flex-grow: 0 !important;
+  margin-top: 8px;
+  min-height: 0;
+  max-height: min(40vh, 420px);
+  overflow-y: auto;
+}
+
+/* Optional: keep stats from dominating — recap shelf should read like the public column. */
+html.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-stats-panel,
+body.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-stats-panel {
+  flex: 0 1 auto;
+  max-height: min(34vh, 360px);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+html.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-main-panel.attack-control-panel,
+body.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-main-panel.attack-control-panel {
+  background: transparent !important;
+}
+
+html.risque-view-host .runtime-hud-root--host-cardplay-recap .risque-public-cardplay-recap-overlay--in-panel,
+body.risque-view-host .runtime-hud-root--host-cardplay-recap .risque-public-cardplay-recap-overlay--in-panel {
+  background: transparent !important;
+}
+
+html.risque-view-host .runtime-hud-root--host-cardplay-recap #risque-main-panel-body,
+body.risque-view-host .runtime-hud-root--host-cardplay-recap #risque-main-panel-body {
+  display: none !important;
+}
+
+/*
+ * Host cardplay recap: same shelf DOM as public TV, but book-voice / card img rules were scoped to
+ * .risque-view-public only — uncapped assets blew out the upper pane. Match public proportions scaled
+ * to the host HUD column (~same max width as TV shelf 840px, shorter vh caps).
+ */
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cardplay-recap-overlay--in-panel,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cardplay-recap-overlay--in-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  align-self: stretch;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cardplay-recap-panel--shelf,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cardplay-recap-panel--shelf {
+  max-width: min(840px, 100%);
+  width: 100%;
+  margin: 0 auto;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper {
+  min-height: 0;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper-content,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper-content {
+  overflow: hidden;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper .risque-public-book-voice,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper .risque-public-book-voice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(4px, 0.9vh, 10px);
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper .risque-public-book-voice-title,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper .risque-public-book-voice-title {
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-size: clamp(13px, 2.3vh, 22px);
+  font-weight: 600;
+  line-height: 1.25;
+  color: #00ff00;
+  text-align: center;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 100%;
+  padding: 0 4px;
+  box-sizing: border-box;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper .risque-public-book-voice-recap-detail,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper .risque-public-book-voice-recap-detail {
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-size: clamp(12px, 2.1vh, 19px);
+  font-weight: 600;
+  line-height: 1.35;
+  color: #d4ffe0;
+  text-align: center;
+  max-width: min(36ch, 100%);
+  padding: 0 6px;
+  box-sizing: border-box;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper .risque-public-book-voice-recap-card-row,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper .risque-public-book-voice-recap-card-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(6px, 1.2vw, 16px);
+  max-width: 100%;
+  min-height: 0;
+}
+
+/* Upper + control-voice recap: cap raster cards (~2× prior caps — host column is taller now). */
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-card-img,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-card-img {
+  height: auto !important;
+  width: auto !important;
+  max-height: clamp(104px, 26vh, 240px) !important;
+  max-width: min(64vw, 236px) !important;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  flex: 0 1 auto;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice--recap-narrative .risque-public-book-voice-card-img,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice--recap-narrative .risque-public-book-voice-card-img,
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper .risque-public-book-voice-card-img,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper .risque-public-book-voice-card-img {
+  max-height: clamp(128px, 31vh, 284px) !important;
+  max-width: min(76vw, 300px) !important;
+}
+
+/* Effect deltas: public colors live under .risque-view-public — mirror here so −2 / remove are red on host. */
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-badge,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-badge {
+  font-size: clamp(36px, 7.5vh, 88px) !important;
+  line-height: 1;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-badge--add,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-badge--add {
+  color: #4ade80 !important;
+  text-shadow:
+    0 0 12px rgba(74, 222, 128, 0.85),
+    0 0 28px rgba(34, 197, 94, 0.45);
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-badge--remove,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-badge--remove {
+  color: #ef4444 !important;
+  text-shadow:
+    0 0 12px rgba(239, 68, 68, 0.9),
+    0 0 26px rgba(220, 38, 38, 0.55);
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-badge--acquired,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-badge--acquired {
+  color: #86efac !important;
+  font-size: clamp(32px, 5.5vh, 72px) !important;
+  letter-spacing: 0.12em;
+  text-shadow:
+    0 0 10px rgba(134, 239, 172, 0.75),
+    0 0 22px rgba(34, 197, 94, 0.4);
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-badge--aerial-attack,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-badge--aerial-attack {
+  color: #86efac !important;
+  font-size: clamp(28px, 5vh, 64px) !important;
+  text-shadow:
+    0 0 10px rgba(134, 239, 172, 0.75),
+    0 0 22px rgba(34, 197, 94, 0.4);
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-badge--wild-territory,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-badge--wild-territory {
+  color: #4ade80 !important;
+  font-size: clamp(28px, 5vh, 64px) !important;
+  text-shadow:
+    0 0 12px rgba(74, 222, 128, 0.85),
+    0 0 28px rgba(34, 197, 94, 0.45);
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-sub,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-sub {
+  font-size: clamp(26px, 5.5vh, 72px) !important;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-sub--add,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-sub--add {
+  color: #4ade80 !important;
+  text-shadow:
+    0 0 12px rgba(74, 222, 128, 0.85),
+    0 0 28px rgba(34, 197, 94, 0.45);
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-sub--remove,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-sub--remove {
+  color: #ef4444 !important;
+  text-shadow:
+    0 0 12px rgba(239, 68, 68, 0.9),
+    0 0 26px rgba(220, 38, 38, 0.55);
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-sub--acquired,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-sub--acquired {
+  color: #86efac !important;
+  font-size: clamp(22px, 4.5vh, 52px) !important;
+  text-shadow:
+    0 0 10px rgba(134, 239, 172, 0.75),
+    0 0 22px rgba(34, 197, 94, 0.4);
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-sub--declined,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-sub--declined,
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-sub--neutral,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-effect-sub--neutral {
+  color: #cbd5e1 !important;
+  font-size: clamp(20px, 4vh, 44px) !important;
+  text-shadow: 0 0 8px rgba(148, 163, 184, 0.55);
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-wild-badge,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-wild-badge {
+  font-size: clamp(11px, 1.8vh, 17px) !important;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-cards,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-book-voice-cards {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px 8px;
+  width: 100%;
+  max-width: 100%;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap #control-voice .risque-public-book-voice-title,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap #control-voice .risque-public-book-voice-title {
+  font-size: clamp(13px, 2.2vh, 21px);
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-card,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-card {
+  width: clamp(112px, calc((100% - 24px) / 5), 200px);
+  max-width: 200px;
+  max-height: min(36vh, 276px);
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-lower .risque-public-cardplay-recap-book-heading,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-lower .risque-public-cardplay-recap-book-heading {
+  font-size: clamp(12px, 1.9vh, 18px);
 }
 
 .risque-public-cardplay-recap-overlay .risque-public-cardplay-recap-panel {

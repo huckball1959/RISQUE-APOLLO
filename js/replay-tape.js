@@ -85,18 +85,61 @@
     return v === 1 || v === TAPE_VERSION;
   }
 
+  /**
+   * Single-pass JSON that skips top-level replay blobs — avoids multi‑MB stringify during long sessions
+   * (Blitz/Campaign instant record many battle frames; cloning the full tape every time was O(session²)).
+   */
+  window.risqueJsonStringifyOmitReplayKeys = function (obj) {
+    if (!obj || typeof obj !== "object") return "{}";
+    try {
+      return JSON.stringify(obj, function (key, val) {
+        if (key !== "" && REPLAY_STRIP_KEYS.indexOf(key) !== -1) return undefined;
+        return val;
+      });
+    } catch (e) {
+      try {
+        return JSON.stringify({});
+      } catch (e2) {
+        return "{}";
+      }
+    }
+  };
+
+  window.risqueCloneGameStateOmitReplayKeys = function (gs) {
+    if (!gs || typeof gs !== "object") return null;
+    try {
+      return JSON.parse(window.risqueJsonStringifyOmitReplayKeys(gs));
+    } catch (e) {
+      return null;
+    }
+  };
+
   window.risqueStripReplayFromGameStateClone = function (gs) {
     if (!gs || typeof gs !== "object") return gs;
-    var out;
-    try {
-      out = JSON.parse(JSON.stringify(gs));
-    } catch (e) {
-      return gs;
+    var out = window.risqueCloneGameStateOmitReplayKeys(gs);
+    return out != null ? out : gs;
+  };
+
+  /** Coalesce frequent disk sidecar writes during rapid combat (every battle called stringify of the full tape). */
+  var __replaySidecarTimer = null;
+  var __replaySidecarGsRef = null;
+  function scheduleReplayTapeSidecarPersist(gs) {
+    __replaySidecarGsRef = gs;
+    if (__replaySidecarTimer != null) return;
+    __replaySidecarTimer = setTimeout(function () {
+      __replaySidecarTimer = null;
+      var g = __replaySidecarGsRef;
+      if (g) replayTapeSidecarPersist(g);
+    }, 450);
+  }
+  window.risqueReplayFlushTapeSidecarSchedule = function () {
+    if (__replaySidecarTimer != null) {
+      clearTimeout(__replaySidecarTimer);
+      __replaySidecarTimer = null;
     }
-    REPLAY_STRIP_KEYS.forEach(function (k) {
-      delete out[k];
-    });
-    return out;
+    var g = __replaySidecarGsRef;
+    __replaySidecarGsRef = null;
+    if (g) replayTapeSidecarPersist(g);
   };
 
   function replayTapeSidecarSerialize(gs) {
@@ -480,8 +523,12 @@
       );
     }
     mergeReplayPlayerColors(gs);
-    replayTapeSidecarPersist(gs);
-    pushMirror();
+    scheduleReplayTapeSidecarPersist(gs);
+    if (typeof window.risqueScheduleMirrorPush === "function") {
+      window.risqueScheduleMirrorPush();
+    } else if (typeof window.risqueMirrorPushGameState === "function") {
+      window.risqueMirrorPushGameState();
+    }
   }
 
   window.risqueReplaySeedOpening = function (gs) {
@@ -1788,9 +1835,9 @@
   };
 
   /**
-   * Lean localStorage gameState (speed): strip replay keys before persist. Default ON.
-   * Opt out (full tape in LS after reload): `?lsReplayLite=0` or `localStorage.setItem('risqueLsReplayLite','0')`.
-   * Opt in explicitly: `?lsReplayLite=1` or `risqueLsReplayLite=1` (same as default since default is on).
+   * Lean localStorage gameState (speed): strip replay keys before persist. Default OFF (reliability-first).
+   * Opt in: `?lsReplayLite=1` or `localStorage.setItem('risqueLsReplayLite','1')`.
+   * Opt out after opting in: `?lsReplayLite=0` or `risqueLsReplayLite=0`.
    */
   function risqueLsReplayLiteEffective() {
     try {
@@ -1818,8 +1865,8 @@
     __risqueLsReplayLiteLogged = true;
     try {
       console.info(
-        "[RISQUE] Lean localStorage gameState (default): replay tape omitted from localStorage for speed. " +
-          "Live replay unchanged in memory. Opt out: ?lsReplayLite=0 or localStorage risqueLsReplayLite=0."
+        "[RISQUE] Lean localStorage: replay tape omitted from persisted gameState for speed. " +
+          "Live replay unchanged in memory. Disable: ?lsReplayLite=0 or localStorage risqueLsReplayLite=0."
       );
     } catch (eL) {
       /* ignore */

@@ -1,10 +1,9 @@
 /**
  * Single map for paths relative to the site root (game.html, index.html, replay-machine.html, docs/…).
- * Runtime phases should use game.html?phase=… only; this file is for launcher, manual/help tabs,
- * and future migration off standalone conquer/win pages.
+ * Runtime phases use game.html?phase=… only; this file is for launcher, manual/help tabs, and doc URLs.
  *
- * Not loaded by game.html: con-*.html, phases/reinforce.html, phases/deploy2.html (optional standalone pages)
- * (grep before deleting). Mock Game Maker/index.html patches manual/help to ../… for subfolder-relative paths.
+ * Runtime phases use game.html?phase=… only (no standalone phase HTML under phases/).
+ * Mock Game Maker/index.html patches manual/help to ../… for subfolder-relative paths.
  *
  * loginRecovery / risqueLoginRecoveryUrl: same as index.html default (cardplay after login, no privacy gate).
  * risqueLoginRecoveryViaPrivacyUrl: deploy/income/deal invalid-state recovery (privacy gate before cardplay).

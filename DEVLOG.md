@@ -35,8 +35,7 @@
 
 ### Files touched in this session
 - `js/core.js`
-- `phases/income.js`
-- `phases/con-income-phase.js`
+- `phases/income.js` (classic + conquer `con-income`)
 - `phases/deploy.js`
 - `phases/con-transfertroops-phase.js`
 - `phases/attack.js`

@@ -7,6 +7,16 @@ function risqueCoreDebugLog() {
     console.log.apply(console, arguments);
   }
 }
+/**
+ * Territory markers render into the SVG inside #canvas only. Avoid document.querySelector('.svg-overlay'):
+ * phase-transition freeze clones can insert extra roots and break first-match updates.
+ */
+function risqueGetCanvasSvgOverlay() {
+  var canvas = document.getElementById('canvas');
+  return canvas ? canvas.querySelector('.svg-overlay') : null;
+}
+window.risqueGetCanvasSvgOverlay = risqueGetCanvasSvgOverlay;
+
 let isLaunchPage = true;
 window.gameUtils = {
   territories: {
@@ -384,7 +394,7 @@ window.gameUtils = {
     }
   },
   /**
-   * Every host attack-phase mount: record which continents the current player fully controls at attack
+   * Every host attack mount (risquePhases.attack.mount): record which continents the current player fully controls at attack
    * start, and drop pre-attack continent-income bookkeeping. Con-income and pending recompute treat only
    * continents gained after this snapshot as campaign "new" (cardplay/income/snapshot state is ignored).
    */
@@ -763,8 +773,7 @@ window.gameUtils = {
             return;
           }
           localStorage.setItem('gameState', JSON.stringify(gameState));
-          /* Manual file load must win over stale IndexedDB hydrate on next page.
-           * Use a fresh, high local seq so risque-game-state-idb.js will not overwrite this state. */
+          /* Manual file load must win over stale IndexedDB hydrate on next page (if any IDB layer bumps seq). */
           try {
             localStorage.setItem('risqueGameStateIdbSeq', String(Date.now()));
           } catch (eSeq) {
@@ -795,7 +804,7 @@ window.gameUtils = {
       this.showError('Canvas wrapper not found');
       return;
     }
-    let stageImage = document.querySelector('.stage-image');
+    let stageImage = canvasWrapper.querySelector('.stage-image');
     if (!stageImage) {
       stageImage = document.createElement('img');
       stageImage.id = 'stage-image';
@@ -806,7 +815,7 @@ window.gameUtils = {
       canvasWrapper.appendChild(stageImage);
       risqueCoreDebugLog('[Core] Stage image created');
     }
-    let stageImageDesat = document.querySelector('.stage-image-desat-mask');
+    let stageImageDesat = canvasWrapper.querySelector('.stage-image-desat-mask');
     if (!stageImageDesat) {
       stageImageDesat = document.createElement('img');
       stageImageDesat.src = 'assets/images/stage.png';
@@ -816,7 +825,7 @@ window.gameUtils = {
       canvasWrapper.appendChild(stageImageDesat);
       risqueCoreDebugLog('[Core] Stage desaturation mask created');
     }
-    let svgOverlay = document.querySelector('.svg-overlay');
+    let svgOverlay = canvasWrapper.querySelector('.svg-overlay');
     if (!svgOverlay) {
       svgOverlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svgOverlay.setAttribute('class', 'svg-overlay');
@@ -1202,7 +1211,7 @@ window.gameUtils = {
     const popIn = !!(renderOpts.popIn && changedLabel);
     risqueCoreDebugLog(`[Core] Rendering territories, changedLabel: ${changedLabel || 'all'}, viewTroopsActive: ${window.viewTroopsActive || false}, deployedTroops:`, deployedTroops);
     try {
-      const svg = document.querySelector('.svg-overlay');
+      const svg = risqueGetCanvasSvgOverlay();
       if (!svg) {
         console.error('[Core] SVG overlay not found');
         this.showError('SVG overlay not found');
@@ -1437,22 +1446,17 @@ window.gameUtils = {
           : [];
         const onSpectatorFocus = spectatorLabels.indexOf(label) !== -1;
         const spectatorScale = onSpectatorFocus ? 1.25 : 1;
-        const cardplayPublicHL =
-          isPublicView &&
-          gameState &&
-          Array.isArray(gameState.risquePublicCardplayHighlightLabels)
+        /* Cardplay map beats (swell + halo): gameState fields are written on host and mirrored to public —
+         * apply on both views so host sees the same expanding markers / animations as the TV. */
+        const cardplaySharedHL =
+          gameState && Array.isArray(gameState.risquePublicCardplayHighlightLabels)
             ? gameState.risquePublicCardplayHighlightLabels
             : [];
-        const onCardplayPublicHL = cardplayPublicHL.indexOf(label) !== -1;
+        const onCardplaySharedHL = cardplaySharedHL.indexOf(label) !== -1;
         const cardplayHlMode =
-          isPublicView && gameState && gameState.risquePublicCardplayHighlightMode != null
+          gameState && gameState.risquePublicCardplayHighlightMode != null
             ? String(gameState.risquePublicCardplayHighlightMode)
             : '';
-        const privateHL =
-          !isPublicView && Array.isArray(window.__risquePrivateCardplayHighlightLabels)
-            ? window.__risquePrivateCardplayHighlightLabels
-            : [];
-        const onCardplayPrivateHL = privateHL.indexOf(label) !== -1;
         const battleLossFlash =
           gameState &&
           Array.isArray(gameState.risqueBattleLossFlashLabels) &&
@@ -1462,22 +1466,17 @@ window.gameUtils = {
           gameState.risqueReplayPlaybackActive &&
           Array.isArray(gameState.risqueReplayBattleFlashLabels) &&
           gameState.risqueReplayBattleFlashLabels.indexOf(label) !== -1;
-        /* TV/public: swell beat (larger r) then halo; host private draft: 1.5× while focused. */
+        /* Swell beat (larger r) then halo — host + public use the same gameState-driven labels/mode. */
         let cardplayScale = 1;
-        if (onCardplayPublicHL) {
+        if (onCardplaySharedHL) {
           cardplayScale = cardplayHlMode === 'swell' ? 1.92 : 1.5;
-        } else if (onCardplayPrivateHL) {
-          cardplayScale = 1.5;
         }
-        if (onCardplayPublicHL) {
+        if (onCardplaySharedHL) {
           if (cardplayHlMode === 'swell') {
             surface.classList.add('risque-cardplay-public-swell');
           } else {
             surface.classList.add('risque-cardplay-public-highlight');
           }
-        }
-        if (onCardplayPrivateHL) {
-          surface.classList.add('risque-cardplay-private-highlight');
         }
         if (battleLossFlash) {
           surface.classList.add('risque-battle-loss-flash');
@@ -1597,12 +1596,21 @@ window.gameUtils = {
               : 0
         ).toString().padStart(3, '0');
         const pathNorm = (window.location.pathname || '').replace(/\\/g, '/').toLowerCase();
+        var bodyPhaseAttr = '';
+        try {
+          bodyPhaseAttr =
+            typeof document !== 'undefined' && document.body
+              ? String(document.body.getAttribute('data-risque-phase') || '')
+              : '';
+        } catch (eBp) {
+          bodyPhaseAttr = '';
+        }
         const isAttackUi =
           pathNorm.endsWith('/attack.html') ||
           gameState.phase === 'attack' ||
-          urlPhase === 'attack';
+          urlPhase === 'attack' ||
+          bodyPhaseAttr === 'attack';
         const isReinforceUi =
-          window.location.pathname.includes('reinforce.html') ||
           gameState.phase === 'reinforce' ||
           urlPhase === 'reinforce';
         const useGlobalTerritoryHandler =
@@ -2011,7 +2019,7 @@ window.gameUtils = {
   renderStats: function(gameState) {
     risqueCoreDebugLog('[Core] Rendering SVG stats, gameState:', gameState);
     try {
-      const svg = document.querySelector('.svg-overlay');
+      const svg = risqueGetCanvasSvgOverlay();
       if (!svg) {
         console.error('[Core] SVG overlay not found');
         this.showError('SVG overlay not found');
@@ -2434,9 +2442,9 @@ window.gameUtils = {
     const scale = Math.min(availH / 1080, availW / 1920);
     canvas.style.transform = `translate(-50%, 0) scale(${scale})`;
     canvas.classList.add('visible');
-    const stageImage = document.querySelector('.stage-image');
-    const stageImageDesat = document.querySelector('.stage-image-desat-mask');
-    const svgOverlay = document.querySelector('.svg-overlay');
+    const stageImage = canvas.querySelector('.stage-image');
+    const stageImageDesat = canvas.querySelector('.stage-image-desat-mask');
+    const svgOverlay = canvas.querySelector('.svg-overlay');
     const uiOverlay = document.querySelector('.ui-overlay');
     if (stageImage) stageImage.classList.add('visible');
     if (stageImageDesat) stageImageDesat.classList.add('visible');
@@ -2657,4 +2665,32 @@ if (window.gameUtils && typeof window.gameUtils.installNumericInputClearOnFocus 
 if (!window.RISQUE_MOCK_MAKER) {
   window.gameUtils.init();
 }
+
+(function risqueInstallHostMapRedrawSuppressWrappers() {
+  var gu = window.gameUtils;
+  if (!gu || gu.__risqueHostMapRedrawGuardInstalled) return;
+  gu.__risqueHostMapRedrawGuardInstalled = true;
+  var origRt = gu.renderTerritories;
+  var origRs = gu.renderStats;
+  gu.renderTerritories = function () {
+    if (
+      typeof window !== 'undefined' &&
+      !window.risqueDisplayIsPublic &&
+      window.__risqueSuppressHostMapRedraw === true
+    ) {
+      return;
+    }
+    return origRt.apply(this, arguments);
+  };
+  gu.renderStats = function () {
+    if (
+      typeof window !== 'undefined' &&
+      !window.risqueDisplayIsPublic &&
+      window.__risqueSuppressHostMapRedraw === true
+    ) {
+      return;
+    }
+    return origRs.apply(this, arguments);
+  };
+})();
 

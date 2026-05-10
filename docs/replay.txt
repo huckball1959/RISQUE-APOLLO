@@ -41,7 +41,7 @@ Key files
   `filterFullReplayEvents`, `risqueReplayShowStartChooser`, sidecar key
   `risqueReplayTapeSidecar` (includes `hasDealFrames`), `risqueReplaySyncHostButton`.
 - `phases/deal.js` — calls `risqueReplayRecordDeal` after each territory assignment.
-- `phases/deploy.js`, `phases/con-deploy-phase.js` — seed opening + record deploy.
+- `phases/deploy.js` — setup deploy, turn deploy, and continental `con-deploy` (same module).
 - `phases/attack.js` — record battle + elimination.
 - `js/game-shell.js` — mirror pipeline, public apply.
 - `phases/runtime-hud.js` — `#risque-host-instant-replay-btn`.

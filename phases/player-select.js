@@ -66,6 +66,22 @@
     document.head.appendChild(s);
   }
 
+  /** Prefer same-document game.html navigation (no full reload); fallback fade or location. */
+  function navigateGameHtmlPreferSoft(url) {
+    try {
+      if (typeof window.risqueNavigateGameHtmlSoft === "function" && window.risqueNavigateGameHtmlSoft(url)) {
+        return;
+      }
+    } catch (eNav) {
+      /* ignore */
+    }
+    if (window.risqueNavigateWithFade) {
+      window.risqueNavigateWithFade(url);
+    } else {
+      window.location.href = url;
+    }
+  }
+
   function colorHex(colorName) {
     if (typeof window.risqueColorHex === "function") {
       return window.risqueColorHex(colorName);
@@ -312,7 +328,7 @@
     }, 120);
 
     var players = gameState.players;
-    var cycleDuration = 4000;
+    var cycleDuration = 2000;
     var cyclesPerSecond = 10;
     var totalCycles = (cycleDuration * cyclesPerSecond) / 1000;
 
@@ -390,11 +406,7 @@
           }
 
           setTimeout(function () {
-            if (window.risqueNavigateWithFade) {
-              window.risqueNavigateWithFade(nextByKind[selectKind]);
-            } else {
-              window.location.href = nextByKind[selectKind];
-            }
+            navigateGameHtmlPreferSoft(nextByKind[selectKind]);
           }, 1000);
         }
       }

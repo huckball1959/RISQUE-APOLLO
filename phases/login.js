@@ -40,6 +40,22 @@
     }
   }
 
+  /** Prefer same-document game.html navigation (no full reload); fallback fade or location. */
+  function navigateGameHtmlPreferSoft(url) {
+    try {
+      if (typeof window.risqueNavigateGameHtmlSoft === "function" && window.risqueNavigateGameHtmlSoft(url)) {
+        return;
+      }
+    } catch (eNav) {
+      /* ignore */
+    }
+    if (window.risqueNavigateWithFade) {
+      window.risqueNavigateWithFade(url);
+    } else {
+      window.location.href = url;
+    }
+  }
+
   function injectLegacyStyles() {
     if (document.getElementById(STYLE_ID)) return;
     var s = document.createElement("style");
@@ -1026,11 +1042,7 @@
             return;
           }
           mirrorPushGameStateBeforeLoginNavigate();
-          if (window.risqueNavigateWithFade) {
-            window.risqueNavigateWithFade(legacyNext);
-          } else {
-            window.location.href = legacyNext;
-          }
+          navigateGameHtmlPreferSoft(legacyNext);
         }, redirectDelayMs);
       });
     }
@@ -1280,8 +1292,7 @@
         return;
       }
       if (!skipPersist) mirrorPushGameStateBeforeLoginNavigate();
-      if (window.risqueNavigateWithFade) window.risqueNavigateWithFade(legacyNext);
-      else window.location.href = legacyNext;
+      navigateGameHtmlPreferSoft(legacyNext);
     });
 
     loadButton.addEventListener("click", function () {
@@ -1336,8 +1347,7 @@
             onLoadSuccess(gs);
             return;
           }
-          if (window.risqueNavigateWithFade) window.risqueNavigateWithFade(loadRedirect);
-          else window.location.href = loadRedirect;
+          navigateGameHtmlPreferSoft(loadRedirect);
         } catch (err) {
           elError.textContent = "Could not read JSON.";
           onLog("Load error: " + err.message);
@@ -1635,11 +1645,7 @@
           return;
         }
         mirrorPushGameStateBeforeLoginNavigate();
-        if (window.risqueNavigateWithFade) {
-          window.risqueNavigateWithFade(legacyNext);
-        } else {
-          window.location.href = legacyNext;
-        }
+        navigateGameHtmlPreferSoft(legacyNext);
       }, redirectDelayMs);
     });
 
@@ -1708,11 +1714,7 @@
               onLoadSuccess(gs);
               return;
             }
-            if (window.risqueNavigateWithFade) {
-              window.risqueNavigateWithFade(loadRedirect);
-            } else {
-              window.location.href = loadRedirect;
-            }
+            navigateGameHtmlPreferSoft(loadRedirect);
           }, redirectDelayMs);
         } catch (err) {
           elError.textContent = "Could not read JSON.";
