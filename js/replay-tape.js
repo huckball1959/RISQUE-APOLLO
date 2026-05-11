@@ -313,6 +313,29 @@
     return out;
   };
 
+  /**
+   * Same tape migrations + ordering as {@link risqueReplayFlattenEvents}, but O(1) extra memory — for autosave
+   * tiers that skip granular rNpM.json (e.g. safe_lean) and only advance {@link risqueReplayGranularWatermark}.
+   */
+  window.risqueReplayTapeTotalEventCount = function (gs) {
+    if (!gs) return 0;
+    migrateLegacyTapeToByRound(gs);
+    ensureReplayByRound(gs);
+    repairMisplacedOpeningInByRound(gs);
+    var br = gs.risqueReplayByRound;
+    if (!br || typeof br !== "object") return 0;
+    var keys = Object.keys(br).sort(function (a, b) {
+      return Number(a) - Number(b);
+    });
+    var n = 0;
+    var i;
+    for (i = 0; i < keys.length; i++) {
+      var arr = br[keys[i]];
+      if (Array.isArray(arr)) n += arr.length;
+    }
+    return n;
+  };
+
   /** Battle + elimination only — used for replay{N}.json when N ≥ 2 (opening/deal stay in replay-deal + round 1). */
   function isAttackPhaseTailReplayEvent(e) {
     if (!e) return false;

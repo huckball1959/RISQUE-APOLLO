@@ -551,6 +551,58 @@
     });
   }
 
+  /** Lowercase snake_case id — matches gameUtils.cardNames. */
+  function canonicalMgmCardId(raw) {
+    if (raw == null) return "";
+    return String(raw)
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+  }
+
+  /**
+   * Risk deck: each territory card and each wildcard is in at most one hand.
+   * Keeps the first copy in turnOrder; removes duplicates and unknown ids from later players.
+   */
+  function dedupeMgmHandsAcrossPlayers() {
+    if (!gameState || !Array.isArray(gameState.players) || !window.gameUtils || !window.gameUtils.cardNames) {
+      return;
+    }
+    var legal = {};
+    window.gameUtils.cardNames.forEach(function (n) {
+      legal[n] = 1;
+    });
+    var order =
+      Array.isArray(gameState.turnOrder) && gameState.turnOrder.length
+        ? gameState.turnOrder.slice()
+        : [];
+    var orderedPlayers = [];
+    order.forEach(function (nm) {
+      var p = gameState.players.find(function (x) {
+        return x && x.name === nm;
+      });
+      if (p) orderedPlayers.push(p);
+    });
+    gameState.players.forEach(function (p) {
+      if (p && orderedPlayers.indexOf(p) === -1) orderedPlayers.push(p);
+    });
+    var claimed = {};
+    orderedPlayers.forEach(function (p) {
+      if (!p) return;
+      p.cards = p.cards || [];
+      var next = [];
+      p.cards.forEach(function (c) {
+        var cn = canonicalMgmCardId(typeof c === "string" ? c : c && c.name);
+        if (!cn || !legal[cn]) return;
+        if (claimed[cn]) return;
+        claimed[cn] = true;
+        next.push(cn);
+      });
+      p.cards = next;
+      syncPlayerAggregates(p);
+    });
+  }
+
   function syncPlayerAggregates(p) {
     p.territories = p.territories || [];
     p.cards = p.cards || [];
@@ -695,7 +747,7 @@
       var seenInHand = {};
       var i;
       for (i = 0; i < arr.length; i++) {
-        var cn = typeof arr[i] === "string" ? String(arr[i]).trim() : "";
+        var cn = canonicalMgmCardId(typeof arr[i] === "string" ? arr[i] : "");
         if (!cn) return "Invalid card in " + playerName + "'s hand.";
         if (!legal[cn]) return "Unknown card: " + cn;
         if (seenInHand[cn]) return "Duplicate in one hand (" + playerName + "): " + cn;
@@ -1357,17 +1409,21 @@
   }
 
   function countCardInGame(cardName) {
+    var want = canonicalMgmCardId(cardName);
+    if (!want) return 0;
     var n = 0;
     gameState.players.forEach(function (p) {
       (p.cards || []).forEach(function (c) {
-        var cn = typeof c === "string" ? c : c.name;
-        if (cn === cardName) n++;
+        var cn = canonicalMgmCardId(typeof c === "string" ? c : c && c.name);
+        if (cn === want) n++;
       });
     });
     return n;
   }
 
   function tryGiveCard(playerName, cardName) {
+    cardName = canonicalMgmCardId(cardName);
+    if (!cardName) return;
     var p = gameState.players.find(function (x) { return x.name === playerName; });
     if (!p) return;
     if ((p.cards || []).length >= 5) {
@@ -1637,6 +1693,7 @@
   function finalizeStateForExport() {
     syncContinentBonusesFromRules();
     syncAllAggregates();
+    dedupeMgmHandsAcrossPlayers();
     rebuildDeck();
     var meta = getSelectedStartPhaseMeta();
     var copy = JSON.parse(JSON.stringify(gameState));
@@ -1981,6 +2038,8 @@
       });
     });
     gameState = data;
+    dedupeMgmHandsAcrossPlayers();
+    rebuildDeck();
     if (!gameState.turnOrder || !gameState.turnOrder.length) {
       gameState.turnOrder = gameState.players.map(function (p) {
         return p.name;

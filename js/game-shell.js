@@ -1381,7 +1381,11 @@
     /** Fingerprint of the in-flight committed recap — mirror JSON may resend with a new proc.seq (e.g. Date.now) without being a new play. */
     committalSig: null,
     /** When hand-preview dwell ends (for recovery if timer dropped). */
-    summaryDeadlineMs: null
+    summaryDeadlineMs: null,
+    /** Lower shelf staged cluster: "book:2" / "singles" — avoids redundant rebuilds. */
+    shelfStagingKey: null,
+    /** Host shelf aerial confirm/counter UI: interval id for enable/disable sync. */
+    hostShelfAerialUiPoll: null
   };
 
   /**
@@ -3557,12 +3561,14 @@
     var TN = String(gs.currentPlayer || "Player").toUpperCase();
     var m = risqueTroopSnapshotForPublicBook(gs);
     var steps = [];
+    var turnBookTotal = risquePublicRecapCountTurnBooks(playedCards);
     var pi;
     for (pi = playedCards.length - 1; pi >= 0; pi--) {
       var pc = playedCards[pi];
       if (!pc || !pc.cards || !pc.cards.length) continue;
       if (pc.action === "book") {
         var effects = pc.effects || [];
+        var turnOrd = risquePublicRecapTurnBookOrdinalAtIndex(playedCards, pi);
         var ej;
         for (ej = effects.length - 1; ej >= 0; ej--) {
           var e = effects[ej];
@@ -3576,7 +3582,9 @@
           risqueUnwindPublicBookEffectIntoSteps(steps, m, effObj, TN, {
             recapInBook: true,
             recapBookOrdinal: ej + 1,
-            recapBookTotal: effects.length
+            recapBookTotal: effects.length,
+            recapTurnBookOrdinal: turnOrd,
+            recapTurnBookTotal: turnBookTotal
           });
         }
       } else if (pc.action === "aerial_attack") {
@@ -4272,6 +4280,7 @@
     _pubBook.displayTroopMap = null;
     _pubBook.committalSig = null;
     _pubBook.summaryDeadlineMs = null;
+    _pubBook.shelfStagingKey = null;
   }
 
   /** Clears delayed ack for static (non–book-step) cardplay recap on TV — host button stays grey until this fires or book anim ends. */
@@ -4360,6 +4369,7 @@
         _pubBook.displayTroopMap = null;
         _pubBook.committalSig = null;
         _pubBook.summaryDeadlineMs = null;
+        _pubBook.shelfStagingKey = null;
       } else {
         clearPublicBookAnimTimers();
         _pubBook.seq = proc.seq;
@@ -4412,8 +4422,19 @@
     return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
   }
 
+  function risquePublicRecapBookGroupCountFromGs(gs) {
+    var cg = gs && gs.risquePublicCardplayRecap && gs.risquePublicCardplayRecap.cardGroups;
+    if (!Array.isArray(cg)) return 1;
+    var n = 0;
+    var gi;
+    for (gi = 0; gi < cg.length; gi++) {
+      if (cg[gi] && risquePublicRecapGroupKind(cg[gi]) === "book") n++;
+    }
+    return n > 0 ? n : 1;
+  }
+
   /** Sentence-case prompts for public TV recap animation (card line + map beat). */
-  function risquePublicRecapStepFriendlyLines(proc, step) {
+  function risquePublicRecapStepFriendlyLines(proc, step, optStepIdx, optGs) {
     if (!step) return { primary: "", report: "" };
     var who = risquePublicRecapSentenceName(proc && proc.playerName);
     var tok = step.mapTerritory != null ? step.mapTerritory : step.rawTerritoryToken;
@@ -4425,9 +4446,33 @@
           : "";
     var primary = "";
     if (step.recapInBook === true && step.recapBookOrdinal != null && step.recapBookTotal != null) {
+      var gsRef = optGs != null ? optGs : typeof window !== "undefined" ? window.gameState : null;
+      var bt = step.recapTurnBookTotal != null ? Number(step.recapTurnBookTotal) : NaN;
+      var bo = step.recapTurnBookOrdinal != null ? Number(step.recapTurnBookOrdinal) : NaN;
+      if (!Number.isFinite(bt) || bt < 1) {
+        bt = risquePublicRecapBookGroupCountFromGs(gsRef);
+      }
+      var idxUse =
+        typeof optStepIdx === "number" && optStepIdx >= 0
+          ? optStepIdx
+          : _pubBook && typeof _pubBook.stepIndex === "number"
+            ? _pubBook.stepIndex
+            : 0;
+      if (!Number.isFinite(bo) || bo < 1) {
+        var books = risquePublicRecapExtractBookGroups(
+          gsRef && gsRef.risquePublicCardplayRecap && gsRef.risquePublicCardplayRecap.cardGroups
+        );
+        bo = risquePublicShelfResolveTurnBookOrdinal(proc, idxUse, step, books);
+      }
+      bt = Math.max(1, Math.floor(bt));
+      bo = Math.min(Math.max(1, Math.floor(bo)), bt);
       primary =
         who +
-        " is turning in a book — card " +
+        " is turning in book " +
+        bo +
+        " of " +
+        bt +
+        " — card " +
         step.recapBookOrdinal +
         " of " +
         step.recapBookTotal;
@@ -4653,10 +4698,10 @@
       titlePrimary = String(gs.currentPlayer).toUpperCase() + " · CARD PLAY";
     }
     if (useRecapCopy) {
-      var friendly = risquePublicRecapStepFriendlyLines(proc, step);
+      var friendly = risquePublicRecapStepFriendlyLines(proc, step, stepIdx, gs);
       titlePrimary = friendly.primary;
     } else if (step && step.effect === "aerial_attack") {
-      var friendlyA = risquePublicRecapStepFriendlyLines(proc, step);
+      var friendlyA = risquePublicRecapStepFriendlyLines(proc, step, stepIdx, gs);
       titlePrimary = friendlyA.primary;
     }
     var useAerialRecapLayout = useRecapCopy || (step && step.effect === "aerial_attack");
@@ -4672,7 +4717,7 @@
     titleEl.textContent = titlePrimary;
     wrap.appendChild(titleEl);
     if (useRecapCopy || (step && step.effect === "aerial_attack")) {
-      var det = risquePublicRecapStepFriendlyLines(proc, step);
+      var det = risquePublicRecapStepFriendlyLines(proc, step, stepIdx, gs);
       if (det.report) {
         var repEl = document.createElement("div");
         repEl.className = "risque-public-book-voice-recap-detail";
@@ -4792,8 +4837,234 @@
     return stepIdx > 0 ? SHELF_UPPER_CLEAR_MS + SHELF_CROSSFADE_MS : SHELF_CROSSFADE_MS;
   }
 
+  function risqueHostShelfClearAerialUiPoll() {
+    if (_pubBook.hostShelfAerialUiPoll) {
+      clearInterval(_pubBook.hostShelfAerialUiPoll);
+      _pubBook.hostShelfAerialUiPoll = null;
+    }
+  }
+
+  /** Matches phases/cardplay.js cardplayIsAerialDecisionReady — income-gate is hidden during host shelf recap. */
+  function risqueHostAerialDecisionReadyForSeq(seq) {
+    if (seq == null || seq === "") return false;
+    try {
+      var rawState = localStorage.getItem(PUBLIC_CARDPLAY_PROCESSING_STATE_KEY);
+      if (!rawState) return false;
+      var st = JSON.parse(rawState);
+      if (!(st && Number(st.seq) === Number(seq) && String(st.state || "") === "aerial_decision")) {
+        return false;
+      }
+      var raw = localStorage.getItem(PUBLIC_AERIAL_DECISION_READY_KEY);
+      if (!raw) return false;
+      var d = JSON.parse(raw);
+      return !!(d && d.ready === true && Number(d.seq) === Number(seq));
+    } catch (eR) {
+      return false;
+    }
+  }
+
+  function risqueHostOpposingPlayerNames(gs) {
+    if (!gs || !Array.isArray(gs.players)) return [];
+    var cur = String(gs.currentPlayer || "");
+    var out = [];
+    var i;
+    for (i = 0; i < gs.players.length; i++) {
+      var p = gs.players[i];
+      if (p && String(p.name || "") !== cur) out.push(String(p.name || ""));
+    }
+    return out;
+  }
+
+  function risqueHostPlayerHasWildcard(gs, playerName, wantLower) {
+    var want = String(wantLower || "").toLowerCase();
+    if (!gs || !Array.isArray(gs.players) || !want) return false;
+    var j;
+    for (j = 0; j < gs.players.length; j++) {
+      var p = gs.players[j];
+      if (!p || String(p.name || "") !== String(playerName || "")) continue;
+      if (!Array.isArray(p.cards)) return false;
+      var k;
+      for (k = 0; k < p.cards.length; k++) {
+        var c = p.cards[k];
+        if (c && c.name && String(c.name).toLowerCase() === want) return true;
+      }
+      return false;
+    }
+    return false;
+  }
+
+  function risqueHostRequiredCounterForPlayedKey(pk) {
+    var s = String(pk || "").toLowerCase();
+    if (s === "wildcard1") return "wildcard2";
+    if (s === "wildcard2") return "wildcard1";
+    return "";
+  }
+
+  /**
+   * Host only: #risque-phase-content is hidden during shelf recap — duplicate aerial confirm/counter here.
+   * Uses the same localStorage keys as phases/cardplay.js (risquePublicAerialCounterDecision).
+   */
+  function risqueHostShelfAppendAerialDecisionUi(wrapEl, gs, step, proc) {
+    if (window.risqueDisplayIsPublic || !wrapEl || !step || step.effect !== "aerial_attack" || !proc) return;
+    var decSeq = Number(proc.seq) || 0;
+    if (!decSeq && gs && gs.risquePublicCardplayRecapAckRequiredSeq != null) {
+      decSeq = Number(gs.risquePublicCardplayRecapAckRequiredSeq) || 0;
+    }
+    if (!decSeq) return;
+
+    var box = document.createElement("div");
+    box.className = "risque-public-cp-shelf-aerial-host";
+    if (!wrapEl.classList || !wrapEl.classList.contains("risque-public-cp-shelf-aerial-beside")) {
+      box.classList.add("risque-public-cp-shelf-aerial-host--standalone");
+    }
+
+    var row = document.createElement("div");
+    row.className = "risque-public-cp-shelf-aerial-btn-stack";
+    var bConf = document.createElement("button");
+    bConf.type = "button";
+    bConf.className = "risque-public-cp-shelf-aerial-btn";
+    bConf.textContent = "CONFIRM";
+    var bCnt = document.createElement("button");
+    bCnt.type = "button";
+    bCnt.className = "risque-public-cp-shelf-aerial-btn";
+    bCnt.textContent = "COUNTER";
+    row.appendChild(bConf);
+    row.appendChild(bCnt);
+    box.appendChild(row);
+
+    var counterRow = document.createElement("div");
+    counterRow.className = "risque-public-cp-shelf-aerial-counter-row";
+    counterRow.hidden = true;
+    var sel = document.createElement("select");
+    sel.className = "risque-public-cp-shelf-aerial-select risque-public-cp-shelf-aerial-select--compact";
+    counterRow.appendChild(sel);
+    box.appendChild(counterRow);
+
+    var msg = document.createElement("div");
+    msg.className = "risque-host-shelf-aerial-inline-msg";
+    msg.setAttribute("role", "status");
+    box.appendChild(msg);
+
+    wrapEl.appendChild(box);
+
+    var playedKey = step.playedCardKey ? String(step.playedCardKey).toLowerCase() : "";
+    var needWC = risqueHostRequiredCounterForPlayedKey(playedKey);
+
+    function fillPlayerOptions() {
+      sel.innerHTML = "";
+      var o0 = document.createElement("option");
+      o0.value = "";
+      o0.textContent = "Choose countering player";
+      sel.appendChild(o0);
+      var names = risqueHostOpposingPlayerNames(gs);
+      var ni;
+      for (ni = 0; ni < names.length; ni++) {
+        var op = document.createElement("option");
+        op.value = names[ni];
+        op.textContent = names[ni];
+        sel.appendChild(op);
+      }
+    }
+    fillPlayerOptions();
+
+    function syncButtonsEnabled() {
+      try {
+        var rawDec = localStorage.getItem(PUBLIC_AERIAL_COUNTER_DECISION_KEY);
+        if (rawDec) {
+          var d = JSON.parse(rawDec);
+          if (
+            d &&
+            Number(d.seq) === Number(decSeq) &&
+            (String(d.choice || "") === "confirmed" || String(d.choice || "") === "countered")
+          ) {
+            bConf.disabled = true;
+            bCnt.disabled = true;
+            sel.disabled = true;
+            msg.textContent = String(d.choice || "") === "confirmed" ? "Confirmed." : "Counter recorded.";
+            return true;
+          }
+        }
+      } catch (eSync) {
+        /* ignore */
+      }
+      var ready = risqueHostAerialDecisionReadyForSeq(decSeq);
+      bConf.disabled = !ready;
+      bCnt.disabled = !ready;
+      if (!ready) {
+        bConf.title = "Waiting for this recap step to be ready.";
+        bCnt.title = "Waiting for this recap step to be ready.";
+      } else {
+        bConf.title = "Confirm aerial attack processing.";
+        bCnt.title = "Choose this if someone calls a valid counter.";
+      }
+      return false;
+    }
+
+    bConf.addEventListener("click", function () {
+      if (bConf.disabled) return;
+      try {
+        localStorage.setItem(
+          PUBLIC_AERIAL_COUNTER_DECISION_KEY,
+          JSON.stringify({ seq: Number(decSeq), choice: "confirmed", phase: "cardplay", at: Date.now() })
+        );
+      } catch (eC) {
+        /* ignore */
+      }
+      syncButtonsEnabled();
+    });
+
+    bCnt.addEventListener("click", function () {
+      if (bCnt.disabled) return;
+      counterRow.hidden = false;
+      msg.textContent = "Select the countering player.";
+      fillPlayerOptions();
+    });
+
+    sel.addEventListener("change", function () {
+      var picked = String(sel.value || "");
+      if (!picked) {
+        msg.textContent = "Choose a player to verify counter.";
+        return;
+      }
+      if (!risqueHostPlayerHasWildcard(gs, picked, needWC)) {
+        msg.textContent = picked + " does not have the required counter wildcard.";
+        return;
+      }
+      try {
+        localStorage.setItem(
+          PUBLIC_AERIAL_COUNTER_DECISION_KEY,
+          JSON.stringify({
+            seq: Number(decSeq),
+            choice: "countered",
+            counterPlayer: picked,
+            phase: "cardplay",
+            holdUntilMs: Date.now() + 5200,
+            at: Date.now()
+          })
+        );
+      } catch (eAp) {
+        /* ignore */
+      }
+      msg.textContent = "Counter validated for " + picked + ".";
+      syncButtonsEnabled();
+    });
+
+    syncButtonsEnabled();
+    risqueHostShelfClearAerialUiPoll();
+    _pubBook.hostShelfAerialUiPoll = setInterval(function () {
+      if (!document.getElementById("risque-public-cardplay-recap-overlay")) {
+        risqueHostShelfClearAerialUiPoll();
+        return;
+      }
+      if (syncButtonsEnabled()) {
+        risqueHostShelfClearAerialUiPoll();
+      }
+    }, 200);
+  }
+
 
   function risquePublicShowAerialCancelledForStep(step, done) {
+    risqueHostShelfClearAerialUiPoll();
     var host = document.getElementById("risque-public-cp-shelf-upper-content");
     if (!host) {
       if (typeof done === "function") done();
@@ -4841,15 +5112,16 @@
     var proc = _pubBook.proc;
     if (!overlay || !upperInner || !step || !proc) return;
 
-    var slots = overlay.querySelectorAll(".risque-public-cp-shelf-lower .risque-public-cp-shelf-card-slot");
+    var lowerVisualIdx = risquePublicShelfLowerVisualStepIndex(proc, stepIdx);
 
     function fillUpperProcessingUi() {
+      risqueHostShelfClearAerialUiPoll();
       upperInner.style.transition = "opacity " + SHELF_CROSSFADE_MS + "ms ease";
       upperInner.innerHTML = "";
       var wrap = document.createElement("div");
       wrap.className =
         "risque-public-cp-shelf-upper-processing risque-public-book-voice risque-public-book-voice--recap-narrative";
-      var friendly = risquePublicRecapStepFriendlyLines(proc, step);
+      var friendly = risquePublicRecapStepFriendlyLines(proc, step, stepIdx, gs);
       var tit = document.createElement("div");
       tit.className = "risque-public-book-voice-title risque-public-cp-shelf-upper-title";
       tit.textContent = friendly.primary;
@@ -4873,7 +5145,16 @@
         bigImg.setAttribute("loading", "lazy");
         cardRow.appendChild(bigImg);
         var badge = risquePublicBookVoiceEffectBadgeForStep(step);
-        if (badge) {
+        var hostAerialBeside =
+          !window.risqueDisplayIsPublic && step.effect === "aerial_attack" && badge;
+        if (hostAerialBeside) {
+          cardRow.classList.add("risque-public-cp-shelf-upper-card-row--host-aerial");
+          var beside = document.createElement("div");
+          beside.className = "risque-public-cp-shelf-aerial-beside";
+          risquePublicBookAppendEffectBadgeEl(beside, badge);
+          risqueHostShelfAppendAerialDecisionUi(beside, gs, step, proc);
+          cardRow.appendChild(beside);
+        } else if (badge) {
           risquePublicBookAppendEffectBadgeEl(cardRow, badge);
         } else if (pk === "wildcard1" || pk === "wildcard2") {
           var wb = document.createElement("div");
@@ -4883,6 +5164,9 @@
         }
         cluster.appendChild(cardRow);
         wrap.appendChild(cluster);
+      }
+      if (!window.risqueDisplayIsPublic && step.effect === "aerial_attack" && !pk) {
+        risqueHostShelfAppendAerialDecisionUi(wrap, gs, step, proc);
       }
       upperInner.appendChild(wrap);
       upperInner.style.opacity = "0";
@@ -4894,17 +5178,25 @@
     }
 
     function updateLowerSlotsForStep() {
+      var liveSlots = overlay.querySelectorAll(".risque-public-cp-shelf-lower .risque-public-cp-shelf-card-slot");
+      var n = liveSlots.length;
+      var vidx = Number(lowerVisualIdx);
+      if (!Number.isFinite(vidx)) vidx = 0;
+      if (n > 0) {
+        if (vidx < 0) vidx = 0;
+        if (vidx >= n) vidx = n - 1;
+      }
       var si;
-      for (si = 0; si < slots.length; si++) {
-        var sl = slots[si];
+      for (si = 0; si < liveSlots.length; si++) {
+        var sl = liveSlots[si];
         var img = sl.querySelector("img");
         if (!img) continue;
         img.style.transition = "opacity " + SHELF_CROSSFADE_MS + "ms ease";
         sl.classList.remove("risque-public-cp-shelf-card-slot--done");
-        if (si < stepIdx) {
+        if (si < vidx) {
           sl.classList.add("risque-public-cp-shelf-card-slot--done");
           img.style.opacity = "0.35";
-        } else if (si === stepIdx) {
+        } else if (si === vidx) {
           img.style.opacity = "0";
         } else {
           img.style.opacity = "1";
@@ -4931,6 +5223,7 @@
    * to the dimmed “processed” state (matches earlier steps). Then caller sets phase done + recap ack.
    */
   function risquePublicShelfFinalizeBookRecap(done) {
+    risqueHostShelfClearAerialUiPoll();
     var overlay = document.getElementById("risque-public-cardplay-recap-overlay");
     var upperInner = document.getElementById("risque-public-cp-shelf-upper-content");
     var slots = overlay ? overlay.querySelectorAll(".risque-public-cp-shelf-lower .risque-public-cp-shelf-card-slot") : [];
@@ -5107,6 +5400,7 @@
       }
     }
     if (useShelfRecap) {
+      risquePublicShelfSyncLowerStagingForStep(gs, step, idx);
       var cv0 = document.getElementById("control-voice");
       if (cv0) cv0.classList.add("ucp-control-voice--public-book-processing");
       var vt0 = document.getElementById("control-voice-text");
@@ -5329,7 +5623,335 @@
   }
 
   /** Bump when public recap DOM/logic changes so TV rebuilds after hard refresh (seq alone is not enough). */
-  var RISQUE_PUBLIC_CARDPLAY_RECAP_RENDER_VER = "13";
+  var RISQUE_PUBLIC_CARDPLAY_RECAP_RENDER_VER = "18";
+
+  function risquePublicRecapCountTurnBooks(playedCards) {
+    var n = 0;
+    if (!Array.isArray(playedCards)) return n;
+    var pi;
+    for (pi = 0; pi < playedCards.length; pi++) {
+      if (playedCards[pi] && playedCards[pi].action === "book") n++;
+    }
+    return n;
+  }
+
+  function risquePublicRecapTurnBookOrdinalAtIndex(playedCards, pi) {
+    var pc = playedCards && playedCards[pi];
+    if (!pc || pc.action !== "book") return null;
+    var ord = 0;
+    var i;
+    for (i = 0; i <= pi; i++) {
+      if (playedCards[i] && playedCards[i].action === "book") ord++;
+    }
+    return ord;
+  }
+
+  function risquePublicRecapGroupKind(g) {
+    return String(g && g.kind != null ? g.kind : "").trim().toLowerCase();
+  }
+
+  function risquePublicRecapExtractBookGroups(cardGroups) {
+    var books = [];
+    if (!Array.isArray(cardGroups)) return books;
+    var gi;
+    for (gi = 0; gi < cardGroups.length; gi++) {
+      var g = cardGroups[gi];
+      if (g && risquePublicRecapGroupKind(g) === "book") books.push(g);
+    }
+    return books;
+  }
+
+  function risquePublicRecapExtractSingleGroups(cardGroups) {
+    var singles = [];
+    if (!Array.isArray(cardGroups)) return singles;
+    var gi;
+    for (gi = 0; gi < cardGroups.length; gi++) {
+      var g = cardGroups[gi];
+      if (g && risquePublicRecapGroupKind(g) === "single") singles.push(g);
+    }
+    return singles;
+  }
+
+  /** How many committed books this recap proc runs (host mirror may omit per-book cardGroups). */
+  function risquePublicInferTurnBookCountFromProc(proc) {
+    if (!proc || !Array.isArray(proc.steps) || proc.steps.length === 0) return 1;
+    var maxO = 1;
+    var i;
+    for (i = 0; i < proc.steps.length; i++) {
+      var s = proc.steps[i];
+      if (!s || s.recapInBook !== true) continue;
+      if (s.recapTurnBookOrdinal != null) {
+        var to = Number(s.recapTurnBookOrdinal);
+        if (Number.isFinite(to) && to > maxO) maxO = to;
+      }
+      if (s.recapTurnBookTotal != null) {
+        var tt = Number(s.recapTurnBookTotal);
+        if (Number.isFinite(tt) && tt > maxO) maxO = tt;
+      }
+    }
+    if (maxO > 1) return maxO;
+    var seg = 1;
+    for (i = 0; i < proc.steps.length - 1; i++) {
+      var p = proc.steps[i];
+      var n = proc.steps[i + 1];
+      if (
+        p &&
+        n &&
+        p.recapInBook === true &&
+        n.recapInBook === true &&
+        Number(n.recapBookOrdinal) === 1 &&
+        Number(p.recapBookOrdinal) !== 1
+      ) {
+        seg++;
+      }
+    }
+    return Math.max(1, seg);
+  }
+
+  /**
+   * Lower shelf book list: public uses recap.cardGroups as-is.
+   * Host only: if recap has one book entry but proc implies N books and ids length ≥ 3N, split into N triples.
+   */
+  function risquePublicShelfBookGroupsForStaging(gs) {
+    var recap = gs && gs.risquePublicCardplayRecap;
+    var cg = recap && Array.isArray(recap.cardGroups) ? recap.cardGroups : [];
+    var rawBooks = risquePublicRecapExtractBookGroups(cg);
+    if (window.risqueDisplayIsPublic) return rawBooks;
+    var proc = gs && gs.risquePublicBookProcessing;
+    var procAnim = !!(proc && risquePublicProcRecapAnimation(proc));
+    var idslHost = recap && Array.isArray(recap.cardIds) ? recap.cardIds : [];
+    var nBkFlat = procAnim ? risquePublicInferTurnBookCountFromProc(proc) : 0;
+    var inferredTripleBooks =
+      !procAnim && idslHost.length > 3 && idslHost.length % 3 === 0 ? idslHost.length / 3 : 0;
+    var nFromFlat = Math.max(nBkFlat, inferredTripleBooks);
+    if (cg.length === 0 && nFromFlat > 1 && idslHost.length >= nFromFlat * 3) {
+      rawBooks = [];
+      var biH;
+      for (biH = 0; biH < nFromFlat; biH++) {
+        rawBooks.push({
+          kind: "book",
+          ids: idslHost.slice(biH * 3, biH * 3 + 3),
+          labels: []
+        });
+      }
+    }
+    if (!proc || !risquePublicProcRecapAnimation(proc)) return rawBooks;
+    var need = risquePublicInferTurnBookCountFromProc(proc);
+    if (need <= 1 || rawBooks.length !== 1) return rawBooks;
+    var g0 = rawBooks[0];
+    if (!g0 || !Array.isArray(g0.ids) || g0.ids.length < need * 3) return rawBooks;
+    var ids = g0.ids;
+    var labels = Array.isArray(g0.labels) ? g0.labels : [];
+    var syn = [];
+    var b;
+    for (b = 0; b < need; b++) {
+      syn.push({
+        kind: "book",
+        ids: ids.slice(b * 3, b * 3 + 3),
+        labels: labels.slice(b * 3, b * 3 + 3)
+      });
+    }
+    return syn;
+  }
+
+  /** Replace lower shelf staging row (one book at a time, then singles). */
+  function risquePublicShelfRebuildLowerContent(gs, lowerSpec) {
+    var overlay = document.getElementById("risque-public-cardplay-recap-overlay");
+    if (!overlay || !gs || !lowerSpec) return;
+    var shelfLower = overlay.querySelector(".risque-public-cp-shelf-lower");
+    if (!shelfLower) return;
+    var existingRow = shelfLower.querySelector(".risque-public-cp-shelf-lower__cards");
+    if (existingRow) existingRow.remove();
+
+    function appendCardToSlot(parent, rawId) {
+      if (!parent) return;
+      var sid =
+        typeof risquePublicSanitizeCardImageId === "function"
+          ? risquePublicSanitizeCardImageId(rawId)
+          : String(rawId || "")
+            .toLowerCase()
+            .replace(/[^a-z0-9_]/g, "");
+      if (!sid) return;
+      var img = document.createElement("img");
+      img.className = "risque-public-cp-shelf-card";
+      img.src = "assets/images/Cards/" + String(sid || "").toUpperCase() + ".webp";
+      img.alt = "";
+      img.setAttribute("loading", "lazy");
+      parent.appendChild(img);
+    }
+
+    var row = document.createElement("div");
+    row.className = "risque-public-cardplay-recap-cards risque-public-cp-shelf-lower__cards";
+
+    if (lowerSpec.mode === "book") {
+      var wrap = document.createElement("div");
+      wrap.className = "risque-public-cardplay-recap-book-group risque-public-cp-shelf-lower__book";
+      var bookHead = document.createElement("div");
+      bookHead.className = "risque-public-cardplay-recap-book-heading";
+      var bt = Number(lowerSpec.bookTotal) || 1;
+      var bo = Number(lowerSpec.bookOrdinal) || 1;
+      bookHead.textContent = bt <= 1 ? "BOOK" : "BOOK " + bo + " OF " + bt;
+      wrap.appendChild(bookHead);
+      var cardHost = document.createElement("div");
+      cardHost.className = "risque-public-cardplay-recap-book-row";
+      wrap.appendChild(cardHost);
+      var g = lowerSpec.group;
+      if (g && Array.isArray(g.ids)) {
+        var zi;
+        for (zi = 0; zi < g.ids.length; zi++) {
+          var col = document.createElement("div");
+          col.className = "risque-public-cp-shelf-card-slot";
+          appendCardToSlot(col, g.ids[zi]);
+          cardHost.appendChild(col);
+        }
+      }
+      row.appendChild(wrap);
+    } else if (lowerSpec.mode === "singles" && Array.isArray(lowerSpec.groups)) {
+      var si;
+      for (si = 0; si < lowerSpec.groups.length; si++) {
+        var sg = lowerSpec.groups[si];
+        if (!sg || !Array.isArray(sg.ids)) continue;
+        var swrap = document.createElement("div");
+        swrap.className = "risque-public-cardplay-recap-single-cluster risque-public-cp-shelf-lower__singles";
+        var sj;
+        for (sj = 0; sj < sg.ids.length; sj++) {
+          var scol = document.createElement("div");
+          scol.className = "risque-public-cp-shelf-card-slot";
+          appendCardToSlot(scol, sg.ids[sj]);
+          swrap.appendChild(scol);
+        }
+        row.appendChild(swrap);
+      }
+    } else if (lowerSpec.mode === "flat" && Array.isArray(lowerSpec.ids)) {
+      var ii;
+      for (ii = 0; ii < lowerSpec.ids.length; ii++) {
+        var slot0 = document.createElement("div");
+        slot0.className = "risque-public-cp-shelf-card-slot";
+        appendCardToSlot(slot0, lowerSpec.ids[ii]);
+        row.appendChild(slot0);
+      }
+    }
+
+    if (row.childNodes.length) shelfLower.appendChild(row);
+  }
+
+  /**
+   * Which committed turn book (1-based) this step belongs to — mirror JSON often drops recapTurnBookOrdinal,
+   * so we match playedCardKey against recap cardGroups, then infer from recapBookOrdinal boundaries.
+   */
+  function risquePublicShelfInferTurnBookOrdinalFromSteps(proc, stepIdx, booksLen) {
+    if (!proc || !Array.isArray(proc.steps) || booksLen <= 1 || stepIdx < 0 || stepIdx >= proc.steps.length) {
+      return 1;
+    }
+    var bookNum = 1;
+    var i;
+    for (i = 0; i < stepIdx; i++) {
+      var p = proc.steps[i];
+      var n = proc.steps[i + 1];
+      if (
+        p &&
+        n &&
+        p.recapInBook === true &&
+        n.recapInBook === true &&
+        Number(n.recapBookOrdinal) === 1 &&
+        Number(p.recapBookOrdinal) !== 1
+      ) {
+        bookNum++;
+      }
+    }
+    return Math.min(Math.max(1, bookNum), booksLen);
+  }
+
+  function risquePublicShelfResolveTurnBookOrdinal(proc, stepIdx, step, books) {
+    var bl = Array.isArray(books) ? books.length : 0;
+    if (bl <= 1) return 1;
+    var pk =
+      step && step.playedCardKey
+        ? typeof risquePublicSanitizeCardImageId === "function"
+          ? risquePublicSanitizeCardImageId(step.playedCardKey)
+          : String(step.playedCardKey || "")
+            .toLowerCase()
+            .replace(/[^a-z0-9_]/g, "")
+        : "";
+    if (pk) {
+      var bi;
+      for (bi = 0; bi < bl; bi++) {
+        var ids = books[bi] && Array.isArray(books[bi].ids) ? books[bi].ids : [];
+        var ki;
+        for (ki = 0; ki < ids.length; ki++) {
+          var sid =
+            typeof risquePublicSanitizeCardImageId === "function"
+              ? risquePublicSanitizeCardImageId(ids[ki])
+              : String(ids[ki] || "")
+                .toLowerCase()
+                .replace(/[^a-z0-9_]/g, "");
+          if (sid && sid === pk) return bi + 1;
+        }
+      }
+    }
+    var inferred = risquePublicShelfInferTurnBookOrdinalFromSteps(proc, stepIdx, bl);
+    if (Number.isFinite(inferred) && inferred >= 1 && inferred <= bl) return inferred;
+    var om = step && step.recapTurnBookOrdinal != null ? Number(step.recapTurnBookOrdinal) : NaN;
+    if (Number.isFinite(om) && om >= 1 && om <= bl) return om;
+    return 1;
+  }
+
+  function risquePublicShelfSyncLowerStagingForStep(gs, step, stepIdx) {
+    if (!risquePublicShelfOverlayHasShelfPanel() || !gs || !gs.risquePublicCardplayRecap) return;
+    var recap = gs.risquePublicCardplayRecap;
+    var groupsRaw = recap.cardGroups;
+    var books = risquePublicShelfBookGroupsForStaging(gs);
+    var singles = risquePublicRecapExtractSingleGroups(Array.isArray(groupsRaw) ? groupsRaw : []);
+    var key;
+    var spec = null;
+    var onBookStep = !!(step && step.recapInBook === true && books.length > 0);
+    if (onBookStep) {
+      var procRef = _pubBook.proc || gs.risquePublicBookProcessing;
+      var idxUse = typeof stepIdx === "number" && stepIdx >= 0 ? stepIdx : _pubBook.stepIndex || 0;
+      var ord = risquePublicShelfResolveTurnBookOrdinal(procRef, idxUse, step, books);
+      var grp = books[ord - 1];
+      if (!grp) return;
+      key = "book:" + ord;
+      spec = { mode: "book", bookOrdinal: ord, bookTotal: books.length, group: grp };
+    } else if (!onBookStep && singles.length > 0) {
+      /* Never swap to singles while a book step is resolving — avoids wiping the 3-card row mid-turn. */
+      key = "singles";
+      spec = { mode: "singles", groups: singles };
+    }
+    if (!spec || !key) return;
+    if (_pubBook.shelfStagingKey === key) return;
+    _pubBook.shelfStagingKey = key;
+    risquePublicShelfRebuildLowerContent(gs, spec);
+  }
+
+  /** Map recap step → lower shelf slot index (book: recapBookOrdinal − 1; singles: count prior non-book steps). */
+  function risquePublicShelfLowerVisualStepIndex(proc, stepIdx) {
+    if (!proc || !proc.steps || stepIdx < 0 || stepIdx >= proc.steps.length) return stepIdx;
+    var st = proc.steps[stepIdx];
+    if (st && st.recapInBook === true) {
+      var cardOrd = st.recapBookOrdinal != null ? Number(st.recapBookOrdinal) : NaN;
+      if (Number.isFinite(cardOrd) && cardOrd >= 1) {
+        return Math.max(0, Math.floor(cardOrd - 1));
+      }
+      var turnOrd = st.recapTurnBookOrdinal != null ? Number(st.recapTurnBookOrdinal) : NaN;
+      if (Number.isFinite(turnOrd)) {
+        var local = 0;
+        var i;
+        for (i = 0; i < stepIdx; i++) {
+          var p = proc.steps[i];
+          if (p && p.recapInBook === true && Number(p.recapTurnBookOrdinal) === turnOrd) local++;
+        }
+        return local;
+      }
+    }
+    var locS = 0;
+    var j;
+    for (j = 0; j < stepIdx; j++) {
+      var q = proc.steps[j];
+      if (!q || q.recapInBook !== true) locS++;
+    }
+    return locS;
+  }
 
   /** Public recap: troop removal shows “-2” (minus + number) in red, not the word “negative”. */
   function risquePublicRecapCaptionDeltaText(Lc) {
@@ -5421,7 +6043,32 @@
       Number(existing.getAttribute("data-recap-seq")) === seq &&
       String(existing.getAttribute("data-recap-render-v") || "") === RISQUE_PUBLIC_CARDPLAY_RECAP_RENDER_VER
     ) {
-      return;
+      /* Host only: heal stale lower shelves (multi-book rows or wide strips). Public path unchanged. */
+      if (!window.risqueDisplayIsPublic) {
+        var booksInDomHeal = existing.querySelectorAll(".risque-public-cp-shelf-lower__book").length;
+        var slotHealCt = existing.querySelectorAll(".risque-public-cp-shelf-lower .risque-public-cp-shelf-card-slot")
+          .length;
+        var cgHealHost = Array.isArray(recap.cardGroups) ? recap.cardGroups : [];
+        var bookGsHeal = risquePublicShelfBookGroupsForStaging(gs);
+        var singleGsHeal = risquePublicRecapExtractSingleGroups(cgHealHost);
+        var procHealHost = gs.risquePublicBookProcessing;
+        var animHealHost = !!(procHealHost && risquePublicProcRecapAnimation(procHealHost));
+        var flatHealHost = Array.isArray(recap.cardIds) ? recap.cardIds.length : 0;
+        var expectStagedOneBookHost =
+          bookGsHeal.length > 1 ||
+          (animHealHost && bookGsHeal.length >= 1 && singleGsHeal.length > 0) ||
+          flatHealHost > 3;
+        var domStagedOneBookOkHost =
+          booksInDomHeal === 1 && slotHealCt >= 1 && slotHealCt <= 3;
+        if ((expectStagedOneBookHost && !domStagedOneBookOkHost) || slotHealCt > 3) {
+          removeRecapOverlay();
+          existing = document.getElementById(overlayId);
+        } else {
+          return;
+        }
+      } else {
+        return;
+      }
     }
     if (existing) removeRecapOverlay();
     window.__risquePublicCardplayRecapDomSeq = seq;
@@ -5468,23 +6115,32 @@
       recapPopIdx += 1;
     }
     var groups = Array.isArray(recap.cardGroups) && recap.cardGroups.length ? recap.cardGroups : null;
+    if (!groups && !window.risqueDisplayIsPublic) {
+      var stagingFallback = risquePublicShelfBookGroupsForStaging(gs);
+      if (stagingFallback.length > 1) groups = stagingFallback;
+    }
     if (groups) {
       var row = document.createElement("div");
       row.className = "risque-public-cardplay-recap-cards risque-public-cp-shelf-lower__cards";
-      var gi;
-      for (gi = 0; gi < groups.length; gi++) {
-        var g = groups[gi];
-        if (!g || !Array.isArray(g.ids)) continue;
+      var procEff = gs.risquePublicBookProcessing;
+      var animRecap = !!(procEff && risquePublicProcRecapAnimation(procEff));
+      var bookGs = risquePublicShelfBookGroupsForStaging(gs);
+      var singleGs = risquePublicRecapExtractSingleGroups(groups);
+
+      function appendGroupToRow(g, bookHeadingText) {
+        if (!g || !Array.isArray(g.ids)) return;
+        var gKind = risquePublicRecapGroupKind(g);
         var wrap = document.createElement("div");
         wrap.className =
-          g.kind === "book"
+          gKind === "book"
             ? "risque-public-cardplay-recap-book-group risque-public-cp-shelf-lower__book"
             : "risque-public-cardplay-recap-single-cluster risque-public-cp-shelf-lower__singles";
         var cardHost = wrap;
-        if (g.kind === "book") {
+        if (gKind === "book") {
           var bookHead = document.createElement("div");
           bookHead.className = "risque-public-cardplay-recap-book-heading";
-          bookHead.textContent = "BOOK";
+          bookHead.textContent =
+            bookHeadingText != null ? String(bookHeadingText) : "BOOK";
           wrap.appendChild(bookHead);
           cardHost = document.createElement("div");
           cardHost.className = "risque-public-cardplay-recap-book-row";
@@ -5499,8 +6155,27 @@
         }
         if (wrap.childNodes.length) row.appendChild(wrap);
       }
+
+      /* Multi-book: always one book in the lower shelf (host + public). Book+singles: same once recap animation runs. */
+      var stagedBooksOnly =
+        bookGs.length > 1 ||
+        (animRecap && bookGs.length >= 1 && singleGs.length > 0);
+      if (stagedBooksOnly) {
+        _pubBook.shelfStagingKey = "book:1";
+        var head0 =
+          bookGs.length <= 1 ? "BOOK" : "BOOK 1 OF " + bookGs.length;
+        appendGroupToRow(bookGs[0], head0);
+      } else {
+        _pubBook.shelfStagingKey =
+          animRecap && bookGs.length === 1 && singleGs.length === 0 ? "book:1" : null;
+        var gi;
+        for (gi = 0; gi < groups.length; gi++) {
+          appendGroupToRow(groups[gi], null);
+        }
+      }
       if (row.childNodes.length) shelfLower.appendChild(row);
     } else {
+      _pubBook.shelfStagingKey = null;
       var rawIds = Array.isArray(recap.cardIds) ? recap.cardIds : [];
       if (rawIds.length > 0) {
         var rowFlat = document.createElement("div");

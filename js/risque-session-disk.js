@@ -166,14 +166,6 @@
     return window.risqueSessionDiskEnsureGameDirHandle(gs);
   };
 
-  function jsonStable(o) {
-    try {
-      return JSON.stringify(o);
-    } catch (eJ) {
-      return "";
-    }
-  }
-
   window.risqueSessionDiskScheduleTurnCheckpoint = function (gs, prevPlayerName) {
     if (!gs || window.risqueDisplayIsPublic) return;
     if (gs.risqueAutosaveTier === "manual") return;
@@ -184,12 +176,11 @@
     } catch (eE) {
       /* ignore */
     }
-    var snap;
-    try {
-      snap = JSON.parse(jsonStable(gs));
-    } catch (eS) {
-      return;
-    }
+    var snap = (function () {
+      if (!gs || typeof gs !== "object") return null;
+      var ord = Array.isArray(gs.turnOrder) ? gs.turnOrder.slice() : [];
+      return { turnOrder: ord, round: gs.round };
+    })();
     if (!snap) return;
     var prev = prevPlayerName != null ? String(prevPlayerName) : "";
     var bootWait =
@@ -235,7 +226,7 @@
       if (!replayDir) return false;
       var rjson;
       try {
-        rjson = JSON.stringify(pack, null, 2);
+        rjson = JSON.stringify(pack);
       } catch (eJ) {
         return false;
       }
@@ -275,28 +266,27 @@
     } catch (eEnsure) {
       /* ignore */
     }
+    var tier = liveGs.risqueAutosaveTier != null ? String(liveGs.risqueAutosaveTier) : "";
+    var granularDiskOn =
+      liveGs.risqueReplayGranularDiskWritesEnabled === true && tier !== "safe_no_replay";
+    if (!granularDiskOn) {
+      var evCount =
+        typeof window.risqueReplayTapeTotalEventCount === "function"
+          ? window.risqueReplayTapeTotalEventCount(liveGs)
+          : 0;
+      if (!evCount) return Promise.resolve(true);
+      try {
+        liveGs.risqueReplayGranularWatermark = evCount;
+      } catch (eWmFast) {
+        /* ignore */
+      }
+      return Promise.resolve(true);
+    }
     var flat =
       typeof window.risqueReplayFlattenEvents === "function"
         ? window.risqueReplayFlattenEvents(liveGs)
         : [];
     if (!Array.isArray(flat) || !flat.length) return Promise.resolve(true);
-    if (liveGs.risqueAutosaveTier === "safe_no_replay") {
-      try {
-        liveGs.risqueReplayGranularWatermark = flat.length;
-      } catch (eSn) {
-        /* ignore */
-      }
-      return Promise.resolve(true);
-    }
-    /* Low-write mode: advance watermark with tape so the first granular flush is not a bogus "catch-up to end". */
-    if (liveGs.risqueReplayGranularDiskWritesEnabled !== true) {
-      try {
-        liveGs.risqueReplayGranularWatermark = flat.length;
-      } catch (eWmOff) {
-        /* ignore */
-      }
-      return Promise.resolve(true);
-    }
     /* Saves before granular export: skip one-shot catch-up (would merge many rounds into one rNpM file). */
     if (liveGs.risqueReplayGranularWatermark == null) {
       try {
@@ -379,7 +369,7 @@
       if (!packEmpty || packEmpty.format !== "risque-replay-v1") return Promise.resolve(true);
       var jEmpty;
       try {
-        jEmpty = JSON.stringify(packEmpty, null, 2);
+        jEmpty = JSON.stringify(packEmpty);
       } catch (eJe) {
         return Promise.resolve(true);
       }
@@ -419,7 +409,7 @@
     if (!pack || pack.format !== "risque-replay-v1") return Promise.resolve(true);
     var rjson;
     try {
-      rjson = JSON.stringify(pack, null, 2);
+      rjson = JSON.stringify(pack);
     } catch (eJson) {
       return Promise.resolve(true);
     }
@@ -492,7 +482,7 @@
       }
       var payloadCk;
       try {
-        payloadCk = JSON.stringify(forDiskCk, null, 2);
+        payloadCk = JSON.stringify(forDiskCk);
       } catch (eJsonCk) {
         return Promise.resolve(false);
       }

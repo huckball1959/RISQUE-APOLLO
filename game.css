@@ -3560,14 +3560,130 @@ body[data-risque-phase="postgame"] #risque-host-cards-in-hand-panel {
   box-sizing: border-box;
 }
 
-/* Private runtime: prompt text lives in control voice; slot = hand + one Continue */
+/* Private runtime: prompt text lives in control voice; dual pane (hand + staging) + Continue */
 .receivecard-compact-root--simple {
-  /* Two full rows of 213px thumbs + labels (no scrollbar on typical conquest transfers) */
-  height: min(82vh, 720px);
-  max-height: min(82vh, 720px);
+  height: min(93vh, 824px);
+  max-height: min(93vh, 824px);
   overflow: visible;
   gap: 8px;
-  padding: 8px 10px 10px;
+  padding: 8px 10px 12px;
+}
+
+/* Receive card — upper hand + lower staging (cardplay-style split) */
+.receivecard-compact-root--simple .receivecard-hand-staging-split {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+}
+
+.receivecard-hand-staging-split .receivecard-hand-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.receivecard-hand-staging-split .receivecard-staging-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 204px;
+  width: 100%;
+  padding: 10px 8px 14px;
+  border: 1px solid #00ff00;
+  border-radius: 6px;
+  background: rgba(0, 24, 0, 0.45);
+  box-sizing: border-box;
+}
+
+.receivecard-staging-grid {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  flex: 1 1 auto;
+  min-height: min(192px, 22vh);
+  box-sizing: border-box;
+}
+
+/* Conquest elimination receive-card: explain deck draw timing — no cardback image */
+.receivecard-staging-conquest-note {
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #86efac;
+  text-align: left;
+  padding: 6px 6px 4px;
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
+  align-self: stretch;
+}
+
+.receivecard-staging-conquest-note p {
+  margin: 0 0 12px;
+}
+
+.receivecard-staging-conquest-note p:last-child {
+  margin-bottom: 0;
+}
+
+.receivecard-staging-conquest-note strong {
+  color: #d9f99d;
+  font-weight: 800;
+}
+
+.receivecard-staging-placeholder-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 132px;
+  padding: 6px 4px;
+  box-sizing: border-box;
+}
+
+.receivecard-staging-placeholder-caption {
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: #86efac;
+  text-align: center;
+  line-height: 1.35;
+  padding: 0 6px;
+}
+
+.receivecard-staging-merge-note {
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: #00ff00;
+  text-align: center;
+  padding: 20px 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.receivecard-compact-root--simple .receivecard-hand-strip--upper {
+  min-height: 64px;
+  max-height: min(40vh, 340px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 6px;
+  box-sizing: border-box;
 }
 
 /* Shared BOOK ✓ pill (receive-card + cardplay) — ~50% larger than original */
@@ -3717,7 +3833,8 @@ body[data-risque-phase="postgame"] #risque-host-cards-in-hand-panel {
   min-height: 448px;
 }
 
-.receivecard-compact-root--simple .receivecard-hand-strip {
+/* Legacy single-strip layout only — upper strip uses max-height + scroll */
+.receivecard-compact-root--simple .receivecard-hand-strip:not(.receivecard-hand-strip--upper) {
   min-height: 436px;
 }
 
@@ -4557,13 +4674,14 @@ html.risque-view-host
   border-color: #64748b;
 }
 
-/* REINFORCE alone at bottom of host control panel (below voice, slots, log) */
+/* REINFORCE at bottom of host control panel + deck-card earned hint (below voice, slots, log) */
 .attack-control-panel .risque-main-panel-body .attack-reinforce-footer {
   flex: 0 0 auto;
   display: flex;
-  flex-direction: row;
-  justify-content: center;
+  flex-direction: column;
+  justify-content: flex-start;
   align-items: stretch;
+  gap: 10px;
   width: 100%;
   box-sizing: border-box;
   margin-top: 10px;
@@ -4576,11 +4694,143 @@ html.risque-view-host
   max-width: 100%;
   min-width: 0;
   min-height: 54px;
-  font-size: clamp(16px, 1.35vw, 20px);
+  font-size: clamp(12px, 1.12vw, 16px);
   font-weight: 900;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
+  line-height: 1.15;
+  white-space: normal;
+  padding: 10px 8px;
   border-width: 3px;
   box-shadow: 0 0 18px rgba(0, 255, 0, 0.55);
+}
+
+/* Host attack: card back under Continue to reinforcement — forbidden overlay until a deck card is earned this turn */
+.risque-host-deck-earned-visual {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 4px 2px;
+}
+
+.risque-host-deck-earned-label {
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-size: clamp(22px, 2vw, 26px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  color: #fef08a;
+  text-shadow: 0 0 20px rgba(250, 204, 21, 0.35);
+  line-height: 1.25;
+  max-width: 100%;
+}
+
+body.risque-view-host[data-risque-phase="attack"] .risque-host-deck-earned-visual--earned .risque-host-deck-earned-label {
+  color: #86efac;
+  text-shadow: 0 0 24px rgba(74, 222, 128, 0.45);
+}
+
+.risque-host-deck-earned-cardbox {
+  position: relative;
+  width: 152px;
+  margin: 0 auto;
+  flex-shrink: 0;
+}
+
+.risque-host-deck-earned-back {
+  display: block;
+  width: 152px;
+  height: auto;
+  max-height: 236px;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 3px solid #166534;
+  box-sizing: border-box;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.risque-host-deck-earned-forbid {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 184px;
+  height: 184px;
+  margin-left: -92px;
+  margin-top: -92px;
+  border-radius: 50%;
+  border: 5px solid #dc2626;
+  box-shadow:
+    0 0 0 2px rgba(0, 0, 0, 0.55),
+    inset 0 0 14px rgba(220, 38, 38, 0.25);
+  background: rgba(127, 29, 29, 0.12);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.risque-host-deck-earned-forbid::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 156px;
+  height: 10px;
+  margin-left: -78px;
+  margin-top: -5px;
+  background: #dc2626;
+  border-radius: 3px;
+  box-shadow: 0 0 6px rgba(220, 38, 38, 0.9);
+  transform: rotate(-52deg);
+}
+
+.risque-host-deck-earned-visual--earned .risque-host-deck-earned-forbid {
+  display: none;
+}
+
+/* Green check over card when a deck card was earned this turn */
+.risque-host-deck-earned-check {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  pointer-events: none;
+  background: linear-gradient(160deg, #4ade80 0%, #16a34a 55%, #15803d 100%);
+  border: 4px solid #bbf7d0;
+  box-shadow:
+    0 0 0 2px rgba(0, 0, 0, 0.35),
+    0 0 22px rgba(74, 222, 128, 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.risque-host-deck-earned-check::before {
+  content: "\2713";
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-size: 52px;
+  font-weight: 900;
+  color: #ffffff;
+  line-height: 1;
+  margin-top: -4px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+body.risque-view-host[data-risque-phase="attack"] .risque-host-deck-earned-visual--earned .risque-host-deck-earned-check {
+  display: flex;
+}
+
+body.risque-view-host[data-risque-phase="attack"] .risque-host-deck-earned-visual--earned .risque-host-deck-earned-back {
+  border-color: #22c55e;
+  box-shadow:
+    0 0 14px rgba(74, 222, 128, 0.35),
+    0 2px 8px rgba(0, 0, 0, 0.45);
 }
 
 /* Host: REINFORCE footer only during attack (advance to reinforcement). Hide during deal, deploy, income, receivecard, reinforce, cardplay, etc. */
@@ -5214,6 +5464,21 @@ body[data-risque-phase="attack"] #hud-attack-chrome {
   overflow-y: visible;
 }
 
+/* Processing strip (not recap narrative): no inner scrollbar — grid + tiny thumbnails fit 3×3 */
+html.risque-view-public
+  #control-voice.ucp-control-voice--public-book-processing:not(:has(.risque-public-book-voice--recap-narrative)) {
+  overflow-y: hidden !important;
+}
+
+html.risque-view-public
+  #control-voice.ucp-control-voice--public-book-processing:not(:has(.risque-public-book-voice--recap-narrative))
+  .ucp-voice-body,
+html.risque-view-public
+  #control-voice.ucp-control-voice--public-book-processing:not(:has(.risque-public-book-voice--recap-narrative))
+  .ucp-voice-messages {
+  overflow: hidden !important;
+}
+
 .risque-view-public .ucp-control-voice.ucp-control-voice--public-book-processing .ucp-voice-messages {
   justify-content: flex-start;
   padding-top: 6px;
@@ -5728,6 +5993,64 @@ html.risque-view-public body[data-risque-phase="receivecard"] #control-voice.ucp
   align-items: center;
   gap: 8px 10px;
   width: 100%;
+}
+
+/* Book processing animation: fixed 3-column grid so nine cards use three rows without scrolling */
+.risque-view-public .risque-public-book-voice:not(.risque-public-book-voice--recap-narrative)
+  .risque-public-book-voice-cards:not(.risque-public-book-voice-cards--recap-step) {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px 8px;
+  justify-items: center;
+  align-items: center;
+  width: 100%;
+  max-width: min(360px, 92%);
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+
+.risque-view-public .risque-public-book-voice:not(.risque-public-book-voice--recap-narrative)
+  .risque-public-book-voice-cards:not(.risque-public-book-voice-cards--recap-step)
+  .risque-public-book-voice-card-pair {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(4px, 1vw, 12px);
+  max-width: 100%;
+}
+
+.risque-view-public .risque-public-book-voice:not(.risque-public-book-voice--recap-narrative)
+  .risque-public-book-voice-cards:not(.risque-public-book-voice-cards--recap-step)
+  .risque-public-book-voice-card-img {
+  height: auto !important;
+  width: auto !important;
+  max-height: min(11vh, 100px) !important;
+  max-width: min(24vw, 72px) !important;
+  object-fit: contain;
+}
+
+.risque-view-public .risque-public-book-voice:not(.risque-public-book-voice--recap-narrative)
+  .risque-public-book-voice-cards:not(.risque-public-book-voice-cards--recap-step)
+  .risque-public-book-voice-effect-badge,
+.risque-view-public .risque-public-book-voice:not(.risque-public-book-voice--recap-narrative)
+  .risque-public-book-voice-cards:not(.risque-public-book-voice-cards--recap-step)
+  .risque-public-book-voice-effect-sub {
+  font-size: clamp(14px, 2.6vh, 36px) !important;
+}
+
+.risque-view-public .risque-public-book-voice:not(.risque-public-book-voice--recap-narrative)
+  .risque-public-book-voice-cards:not(.risque-public-book-voice-cards--recap-step)
+  .risque-public-book-voice-effect-badge--acquired,
+.risque-view-public .risque-public-book-voice:not(.risque-public-book-voice--recap-narrative)
+  .risque-public-book-voice-cards:not(.risque-public-book-voice-cards--recap-step)
+  .risque-public-book-voice-effect-badge--aerial-attack,
+.risque-view-public .risque-public-book-voice:not(.risque-public-book-voice--recap-narrative)
+  .risque-public-book-voice-cards:not(.risque-public-book-voice-cards--recap-step)
+  .risque-public-book-voice-effect-badge--wild-territory {
+  font-size: clamp(12px, 2.2vh, 28px) !important;
 }
 
 .risque-view-public .risque-public-book-voice-card-img {
@@ -6438,6 +6761,99 @@ body.risque-view-host[data-risque-phase="receivecard"] .ucp-voice-messages {
 body.risque-view-host[data-risque-phase="receivecard"] .risque-phase-content {
   min-height: 0;
   margin-top: 2px;
+  flex: 1 1 auto;
+}
+
+/* Beat base .receivecard-compact-root { max-height: 268px; overflow: hidden } — host dual-pane needs full panel */
+body.risque-view-host[data-risque-phase="receivecard"] .receivecard-compact-root.receivecard-compact-root--simple {
+  height: min(93vh, 824px);
+  max-height: min(93vh, 824px);
+  overflow: visible;
+}
+
+/* Upper hand sizes to its thumbnails; scroll lives on #receivecard-hand-strip-upper, not a squeezed flex slot */
+body.risque-view-host[data-risque-phase="receivecard"] .receivecard-hand-staging-split .receivecard-hand-stack {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+/* Conquest elimination: hide prompt under banner; 5-up grid; smaller thumbs (≤2 rows for 9 cards) */
+body.risque-view-host[data-risque-phase="receivecard"]
+  .receivecard-compact-root--conquest-elim.receivecard-compact-root--simple {
+  gap: 4px;
+  padding-top: 4px;
+}
+
+body.risque-view-host[data-risque-phase="receivecard"]
+  .receivecard-compact-root--conquest-elim
+  .receivecard-compact-message {
+  display: none !important;
+}
+
+body.risque-view-host[data-risque-phase="receivecard"]
+  .receivecard-compact-root--conquest-elim
+  .risque-book-pill-row {
+  display: none;
+}
+
+body.risque-view-host[data-risque-phase="receivecard"]
+  .receivecard-compact-root--conquest-elim
+  .receivecard-strip-label--conquest {
+  margin-bottom: 2px;
+}
+
+body.risque-view-host[data-risque-phase="receivecard"]
+  .receivecard-compact-root--conquest-elim
+  .receivecard-hand-staging-split {
+  gap: 10px;
+}
+
+body.risque-view-host[data-risque-phase="receivecard"]
+  .receivecard-compact-root--conquest-elim
+  .receivecard-hand-strip--upper,
+body.risque-view-host[data-risque-phase="receivecard"]
+  .receivecard-compact-root--conquest-elim
+  .receivecard-staging-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px 6px;
+  align-items: start;
+  justify-items: center;
+}
+
+body.risque-view-host[data-risque-phase="receivecard"]
+  .receivecard-compact-root--conquest-elim
+  .receivecard-hand-strip--upper {
+  max-height: min(38vh, 300px);
+}
+
+body.risque-view-host[data-risque-phase="receivecard"]
+  .receivecard-compact-root--conquest-elim
+  .receivecard-staging-grid {
+  min-height: min(164px, 19vh);
+}
+
+body.risque-view-host[data-risque-phase="receivecard"]
+  .receivecard-compact-root--conquest-elim
+  .receivecard-staging-wrap {
+  min-height: 172px;
+  padding-top: 8px;
+  padding-bottom: 10px;
+}
+
+body.risque-view-host[data-risque-phase="receivecard"]
+  .risque-phase-content
+  .receivecard-compact-root--conquest-elim
+  .receivecard-thumb {
+  width: 102px !important;
+  height: 157px !important;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+body.risque-view-host[data-risque-phase="receivecard"] .runtime-hud-root .attack-control-panel {
+  padding-bottom: 12px;
 }
 
 body.risque-view-host[data-risque-phase="receivecard"] .receivecard-strip-label {
@@ -7765,6 +8181,81 @@ html.risque-view-public .runtime-hud-root:not(.runtime-hud-root--login) #hud-ban
   min-height: 0;
 }
 
+/*
+ * Public TV — during map/book processing (nine picks): mirrored lower staging is a 3×3 grid, compact cards,
+ * no scroll inside .cardplay-compact-root (host laptop layout uses overflow-y: auto).
+ */
+html.risque-view-public
+  body[data-risque-phase="cardplay"]:has(
+    #control-voice.ucp-control-voice--public-book-processing:not(:has(.risque-public-book-voice--recap-narrative))
+  )
+  .cardplay-compact-root,
+html.risque-view-public
+  body[data-risque-phase="con-cardplay"]:has(
+    #control-voice.ucp-control-voice--public-book-processing:not(:has(.risque-public-book-voice--recap-narrative))
+  )
+  .cardplay-compact-root {
+  overflow-x: hidden !important;
+  overflow-y: visible !important;
+  max-height: none !important;
+}
+
+html.risque-view-public
+  body[data-risque-phase="cardplay"]:has(
+    #control-voice.ucp-control-voice--public-book-processing:not(:has(.risque-public-book-voice--recap-narrative))
+  )
+  .runtime-hud-root--cardplay-panel-only
+  .cardplay-hand-staging-split
+  > .cardplay-staging-wrap,
+html.risque-view-public
+  body[data-risque-phase="con-cardplay"]:has(
+    #control-voice.ucp-control-voice--public-book-processing:not(:has(.risque-public-book-voice--recap-narrative))
+  )
+  .runtime-hud-root--cardplay-panel-only
+  .cardplay-hand-staging-split
+  > .cardplay-staging-wrap {
+  overflow: visible !important;
+}
+
+html.risque-view-public
+  body[data-risque-phase="cardplay"]:has(
+    #control-voice.ucp-control-voice--public-book-processing:not(:has(.risque-public-book-voice--recap-narrative))
+  )
+  .cardplay-staging-grid.cardplay-card-row,
+html.risque-view-public
+  body[data-risque-phase="con-cardplay"]:has(
+    #control-voice.ucp-control-voice--public-book-processing:not(:has(.risque-public-book-voice--recap-narrative))
+  )
+  .cardplay-staging-grid.cardplay-card-row {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 6px 8px !important;
+  align-items: center !important;
+  justify-items: center !important;
+  align-content: start !important;
+  overflow: visible !important;
+  min-height: 0 !important;
+}
+
+html.risque-view-public
+  body[data-risque-phase="cardplay"]:has(
+    #control-voice.ucp-control-voice--public-book-processing:not(:has(.risque-public-book-voice--recap-narrative))
+  )
+  .cardplay-staging-grid
+  .card.cardplay-compact-card,
+html.risque-view-public
+  body[data-risque-phase="con-cardplay"]:has(
+    #control-voice.ucp-control-voice--public-book-processing:not(:has(.risque-public-book-voice--recap-narrative))
+  )
+  .cardplay-staging-grid
+  .card.cardplay-compact-card {
+  width: auto !important;
+  max-width: min(22vw, 76px) !important;
+  max-height: min(11vh, 104px) !important;
+  height: auto !important;
+  object-fit: contain !important;
+}
+
 .risque-view-public body[data-risque-phase="cardplay"] .risque-public-private-hint,
 .risque-view-public body[data-risque-phase="con-cardplay"] .risque-public-private-hint {
   margin-top: 0;
@@ -7932,8 +8423,7 @@ html.risque-view-public .runtime-hud-root:not(.runtime-hud-root--login) #hud-ban
   display: none !important;
 }
 
-/* Host: staged shelf + one-at-a-time processing (same DOM/engine as public). Keep #risque-phase-content
- * and stats visible so income / continue controls stay reachable below the control column. */
+/* Host cardplay recap: match public TV shelf column — stats / phase slot hidden so the two-pane shelf fills like public. */
 html.risque-view-host .runtime-hud-root--host-cardplay-recap,
 body.risque-view-host .runtime-hud-root--host-cardplay-recap {
   bottom: 0;
@@ -7961,7 +8451,7 @@ body.risque-view-host .runtime-hud-root--host-cardplay-recap .hud-title-stack {
 
 html.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-main-panel,
 body.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-main-panel {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
   max-height: none;
@@ -7969,33 +8459,13 @@ body.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-main-panel {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 16px 20px !important;
+  padding: 25px !important;
   box-sizing: border-box;
   border: none !important;
   background: transparent !important;
   box-shadow: none !important;
   border-radius: 0 !important;
   gap: 0;
-}
-
-/* Income / continue lives here — do not let it flex-grow (default cardplay gives it flex:1 and steals half the column). */
-html.risque-view-host .runtime-hud-root--host-cardplay-recap.runtime-hud-root--cardplay-panel-only .risque-phase-content,
-body.risque-view-host .runtime-hud-root--host-cardplay-recap.runtime-hud-root--cardplay-panel-only .risque-phase-content {
-  flex: 0 1 auto !important;
-  flex-grow: 0 !important;
-  margin-top: 8px;
-  min-height: 0;
-  max-height: min(40vh, 420px);
-  overflow-y: auto;
-}
-
-/* Optional: keep stats from dominating — recap shelf should read like the public column. */
-html.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-stats-panel,
-body.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-stats-panel {
-  flex: 0 1 auto;
-  max-height: min(34vh, 360px);
-  overflow-x: hidden;
-  overflow-y: auto;
 }
 
 html.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-main-panel.attack-control-panel,
@@ -8010,6 +8480,16 @@ body.risque-view-host .runtime-hud-root--host-cardplay-recap .risque-public-card
 
 html.risque-view-host .runtime-hud-root--host-cardplay-recap #risque-main-panel-body,
 body.risque-view-host .runtime-hud-root--host-cardplay-recap #risque-main-panel-body {
+  display: none !important;
+}
+
+/* Same chrome stripping as public recap — shelf gets the column. */
+html.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-stats-panel,
+body.risque-view-host .runtime-hud-root--host-cardplay-recap #hud-stats-panel,
+html.risque-view-host .runtime-hud-root--host-cardplay-recap #risque-phase-content,
+body.risque-view-host .runtime-hud-root--host-cardplay-recap #risque-phase-content,
+html.risque-view-host .runtime-hud-root--host-cardplay-recap .hud-phase-player-row,
+body.risque-view-host .runtime-hud-root--host-cardplay-recap .hud-phase-player-row {
   display: none !important;
 }
 
@@ -8094,6 +8574,140 @@ body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .r
   gap: clamp(6px, 1.2vw, 16px);
   max-width: 100%;
   min-height: 0;
+}
+
+/* Host aerial: align badge + stacked CONFIRM/COUNTER column with top of card (no extra pane height rules). */
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper-card-row--host-aerial,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-upper-card-row--host-aerial {
+  align-items: flex-start;
+}
+
+/* Shelf-only: badge column width drives CONFIRM/COUNTER width (matches “AERIAL ATTACK” line). */
+.risque-public-cp-shelf-aerial-beside {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  align-self: flex-start;
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: min(46vw, 100%);
+  gap: clamp(2px, 0.45vh, 5px);
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-aerial-beside > .risque-public-book-voice-effect-badge--aerial-attack,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-aerial-beside > .risque-public-book-voice-effect-badge--aerial-attack {
+  display: block;
+  width: 100%;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.risque-public-cp-shelf-aerial-host {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.risque-public-cp-shelf-aerial-host--standalone {
+  max-width: min(42vw, 180px);
+  align-self: center;
+}
+
+.risque-public-cp-shelf-aerial-btn-stack {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(14px, 2.5vh, 24px);
+  width: 100%;
+}
+
+.risque-public-cp-shelf-aerial-btn {
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 8px;
+  min-height: clamp(42px, 5vh, 52px);
+  font-family: Arial, sans-serif;
+  font-size: clamp(11px, 2.1vh, 14px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.35;
+  border: 1px solid #00ff00;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #ecfccb;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.risque-public-cp-shelf-aerial-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Host recap: wins over generic `.cardplay-*-continue-income-btn` and other button rules (explicit + !important). */
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-aerial-btn-stack,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .risque-public-cp-shelf-aerial-btn-stack {
+  gap: clamp(14px, 2.5vh, 24px) !important;
+  row-gap: clamp(14px, 2.5vh, 24px) !important;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap button.risque-public-cp-shelf-aerial-btn,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap button.risque-public-cp-shelf-aerial-btn {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 11px 8px !important;
+  min-height: 46px !important;
+  font-size: clamp(11px, 2.1vh, 14px) !important;
+  font-weight: 800 !important;
+  line-height: 1.35 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: none !important;
+  color: #ecfccb !important;
+  background: rgba(0, 0, 0, 0.45) !important;
+  border: 2px solid #00ff00 !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+}
+
+html.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap button.risque-public-cp-shelf-aerial-btn:disabled,
+body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap button.risque-public-cp-shelf-aerial-btn:disabled {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+  background: rgba(0, 0, 0, 0.45) !important;
+  color: #ecfccb !important;
+  border-color: rgba(0, 255, 0, 0.45) !important;
+}
+
+.risque-public-cp-shelf-aerial-counter-row {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.risque-public-cp-shelf-aerial-select--compact {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 4px;
+  box-sizing: border-box;
+  background: #111;
+  color: #fff;
+  border: 1px solid #00ff00;
+  border-radius: 3px;
+  font-size: clamp(9px, 1.65vh, 11px);
+  font-weight: 600;
 }
 
 /* Upper + control-voice recap: cap raster cards (~2× prior caps — host column is taller now). */
@@ -8368,6 +8982,17 @@ body.risque-view-host #runtime-hud-root.runtime-hud-root--host-cardplay-recap .r
   border: 1px solid #00ff00;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.35);
+}
+
+.risque-host-shelf-aerial-inline-msg {
+  margin-top: 2px;
+  color: #fbbf24;
+  font-family: Arial, sans-serif;
+  font-size: clamp(8px, 1.5vh, 11px);
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+  max-width: 100%;
 }
 
 .cardplay-host-aerial-decision-title {

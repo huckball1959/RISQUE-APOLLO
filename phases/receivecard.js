@@ -20,6 +20,19 @@
   }
 
   var __risqueReceiveCardContinueDefaultLabel = "CONTINUE";
+  /** Host HUD: new deck card shown in lower pane until CONTINUE merges into upper hand. */
+  var RECEIVE_CARD_STAGING_DELAY_MS = 2000;
+
+  function receiveCardStagingDelayMs() {
+    try {
+      if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        return 0;
+      }
+    } catch (eMq) {
+      /* ignore */
+    }
+    return RECEIVE_CARD_STAGING_DELAY_MS;
+  }
 
   function receiveCardSetContinueSaving(busy) {
     var btn = document.getElementById("receivecard-btn-end");
@@ -74,6 +87,15 @@
       var v = c === "x" ? r : (r & 0x3) | 0x8;
       return v.toString(16);
     });
+  }
+
+  /** Territory card id in lowercase snake_case — must match gameUtils.cardNames (Prepare Loaded used to drop mixed-case hands). */
+  function receiveCardCanonicalTerritoryCardName(raw) {
+    if (raw == null) return "";
+    return String(raw)
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_");
   }
 
   function receiveCardValidateDeck() {
@@ -248,6 +270,202 @@
     return out;
   }
 
+  function receiveCardThumbClassForIndex(conquestElimReview, transferredCount, cardsLen, idx) {
+    var base = "receivecard-thumb";
+    if (conquestElimReview && transferredCount > 0 && idx >= Math.max(0, cardsLen - transferredCount)) {
+      return base + " receivecard-thumb-existing receivecard-thumb-conquest";
+    }
+    return base + " receivecard-thumb-existing";
+  }
+
+  function receiveCardAppendThumbToStrip(strip, cardName, extraClass) {
+    if (!strip || !cardName) return;
+    var img = document.createElement("img");
+    img.className = "receivecard-thumb" + (extraClass ? " " + extraClass : "");
+    img.src = "assets/images/Cards/" + String(cardName || "").toUpperCase() + ".webp";
+    img.alt = String(cardName || "").replace(/_/g, " ");
+    strip.appendChild(img);
+  }
+
+  function receiveCardApplyStagingMergeUi() {
+    var gs = window.gameState;
+    var upper = document.getElementById("receivecard-hand-strip-upper");
+    var staging = document.getElementById("receivecard-staging-grid");
+    if (!gs || !gs.players || !upper || !staging) return;
+    var currentPlayer = gs.players.find(function (p) {
+      return p.name === gs.currentPlayer;
+    });
+    if (!currentPlayer || !currentPlayer.cards) return;
+    currentPlayer.cards = currentPlayer.cards || [];
+    var transferredCount = Math.max(0, Number(gs.transferredCardCount) || 0);
+    var conquestElimReview = !!(gs.risqueConquestElimReceiveCard && !window.risqueDisplayIsPublic);
+    upper.innerHTML = "";
+    var n = currentPlayer.cards.length;
+    currentPlayer.cards.forEach(function (card, idx) {
+      var cardName = typeof card === "string" ? card : card.name;
+      var img = document.createElement("img");
+      img.className = receiveCardThumbClassForIndex(conquestElimReview, transferredCount, n, idx);
+      img.src = "assets/images/Cards/" + String(cardName || "").toUpperCase() + ".webp";
+      img.alt = String(cardName || "").replace(/_/g, " ");
+      upper.appendChild(img);
+    });
+    staging.innerHTML =
+      '<div class="receivecard-staging-merge-note" role="status">Added to hand above.</div>';
+  }
+
+  function receiveCardScheduleAdvanceAfterStagingMerge() {
+    try {
+      if (window.__risqueReceiveCardStagingTimer) {
+        clearTimeout(window.__risqueReceiveCardStagingTimer);
+      }
+    } catch (eClr) {
+      /* ignore */
+    }
+    receiveCardApplyStagingMergeUi();
+    window.__risqueReceiveCardStagingMerged = true;
+    window.__risqueReceiveCardStagingMergeNeeded = false;
+    var btn = document.getElementById("receivecard-btn-end");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Continuing…";
+    }
+    window.__risqueReceiveCardStagingTimer = setTimeout(function () {
+      window.__risqueReceiveCardStagingTimer = null;
+      receiveCardRunTurnAdvanceAndHandoff();
+    }, receiveCardStagingDelayMs());
+  }
+
+  function receiveCardRunTurnAdvanceAndHandoff() {
+    receiveCardSetContinueSaving(true);
+    var advTurn = receiveCardAdvanceTurn();
+    if (advTurn === false) {
+      receiveCardSetContinueSaving(false);
+      try {
+        window.__risqueReceiveCardEndTurnBusy = false;
+      } catch (eRel0) {
+        /* ignore */
+      }
+      return;
+    }
+    try {
+      var gsAfter = window.gameState || {};
+      try {
+        delete gsAfter.risqueControlVoice;
+      } catch (eCvDel) {
+        /* ignore */
+      }
+      var nextPlayerName = (gsAfter.currentPlayer ? gsAfter.currentPlayer : "the next player").toString();
+      try {
+        gsAfter.risquePublicNextPlayerHandoffPrimary = "Next player is " + nextPlayerName;
+        gsAfter.risquePublicNextPlayerHandoffReport = "";
+      } catch (eHand) {
+        /* ignore */
+      }
+      try {
+        localStorage.setItem("gameState", JSON.stringify(gsAfter));
+      } catch (e) {
+        /* ignore */
+      }
+      var completedRound = advTurn.completedRound;
+      var roundSaveChain = Promise.resolve();
+      if (completedRound > 0 && typeof window.risqueRoundAutosaveOnRoundComplete === "function") {
+        var completedFromState = (Number(gsAfter.round) || 0) - 1;
+        var crArg = completedFromState > 0 ? completedFromState : completedRound;
+        var maybeSaveP = window.risqueRoundAutosaveOnRoundComplete(gsAfter, crArg);
+        if (maybeSaveP && typeof maybeSaveP.then === "function") {
+          roundSaveChain = maybeSaveP;
+        }
+      }
+      var diskChain =
+        advTurn.turnDisk && typeof advTurn.turnDisk.then === "function"
+          ? advTurn.turnDisk
+          : Promise.resolve(true);
+      if (
+        (!advTurn.turnDisk || typeof advTurn.turnDisk.then !== "function") &&
+        typeof window.risqueSessionDiskHasWritableSaveTarget === "function" &&
+        window.risqueSessionDiskHasWritableSaveTarget()
+      ) {
+        receiveCardLog("Missing turnDisk with active save target; awaiting write queue.");
+        diskChain =
+          typeof window.risqueSessionDiskAwaitTurnWriteQueue === "function"
+            ? window.risqueSessionDiskAwaitTurnWriteQueue()
+            : diskChain;
+      }
+      function runReceiveCardHandoffAndNavigate() {
+        if (typeof window.risqueHostReplaceShellGameState === "function") {
+          window.risqueHostReplaceShellGameState(gsAfter);
+        }
+        if (typeof window.risqueMirrorPushGameState === "function") {
+          window.risqueMirrorPushGameState();
+        }
+        var nextHandoffMsg =
+          "Next player\n\nHand the tablet to " + nextPlayerName + " for card play.\n\nOnly this player should tap Continue.";
+        function goNextPlayerCardplay() {
+          var target = "game.html?phase=cardplay&legacyNext=income.html&postReceive=1";
+          if (typeof window.risqueMarkPostReceiveCardplayBlackout === "function") {
+            window.risqueMarkPostReceiveCardplayBlackout();
+          }
+          if (
+            typeof window.risqueNavigateGameHtmlSoft === "function" &&
+            window.risqueNavigateGameHtmlSoft(target)
+          ) {
+            try {
+              window.__risqueReceiveCardEndTurnBusy = false;
+            } catch (eBusySoft) {}
+            return;
+          }
+          if (window.risqueNavigateWithFade) {
+            window.risqueNavigateWithFade(target);
+          } else {
+            window.location.href = target;
+          }
+        }
+        var PGn = window.risquePhases && window.risquePhases.privacyGate;
+        if (!window.risqueDisplayIsPublic && PGn && typeof PGn.mountHostTabletHandoff === "function") {
+          PGn.mountHostTabletHandoff({
+            message: nextHandoffMsg,
+            onContinue: goNextPlayerCardplay,
+            onLog: function (line) {
+              receiveCardLog(line);
+            }
+          });
+        } else {
+          goNextPlayerCardplay();
+        }
+      }
+      Promise.all([roundSaveChain, diskChain])
+        .then(function () {
+          return typeof window.risqueSessionDiskAwaitTurnWriteQueue === "function"
+            ? window.risqueSessionDiskAwaitTurnWriteQueue()
+            : Promise.resolve(true);
+        })
+        .then(
+          function () {
+            runReceiveCardHandoffAndNavigate();
+          },
+          function (err) {
+            receiveCardLog("Turn save / round autosave failed", err);
+            receiveCardSetMessage(
+              "Could not finish saving to disk. Check folder access, wait a moment, then tap Continue again."
+            );
+            receiveCardSetContinueSaving(false);
+            try {
+              window.__risqueReceiveCardEndTurnBusy = false;
+            } catch (eRelF) {
+              /* ignore */
+            }
+          }
+        );
+    } catch (eRcBody) {
+      try {
+        window.__risqueReceiveCardEndTurnBusy = false;
+      } catch (eRelB) {
+        /* ignore */
+      }
+      throw eRcBody;
+    }
+  }
+
   function receiveCardAdvanceTurn() {
     var gameState = window.gameState || {};
     if (!gameState.turnOrder || !Array.isArray(gameState.turnOrder) || gameState.turnOrder.length === 0) {
@@ -308,9 +526,13 @@
   }
 
   function receiveCardRunDisplay() {
-    var handStrip = document.getElementById("receivecard-hand-strip");
+    var upperStrip = document.getElementById("receivecard-hand-strip-upper");
+    var stagingGrid = document.getElementById("receivecard-staging-grid");
+    var stagingWrap = document.getElementById("receivecard-staging-wrap");
+    var legacyHandStrip = document.getElementById("receivecard-hand-strip");
     var newImg = document.getElementById("receivecard-new-img");
-    if (!handStrip) return;
+    var useDual = !!(upperStrip && stagingGrid);
+    if (!useDual && !legacyHandStrip) return;
     if (!window.gameState || !window.gameState.players) {
       receiveCardSetMessage("Invalid game state.");
       return;
@@ -325,7 +547,9 @@
     }
     if (window.risqueDisplayIsPublic) {
       receiveCardSetMessage("");
-      handStrip.innerHTML = "";
+      if (legacyHandStrip) legacyHandStrip.innerHTML = "";
+      if (upperStrip) upperStrip.innerHTML = "";
+      if (stagingGrid) stagingGrid.innerHTML = "";
       if (newImg) {
         newImg.src = "assets/images/Cards/CARDBACK.webp";
         newImg.alt = "";
@@ -348,9 +572,7 @@
       !conquestElimReview;
 
     if (conquestElimReview) {
-      receiveCardSetMessage(
-        "Defeated player's cards are in your hand (gold outline). Your capture deck card will be drawn after reinforcement."
-      );
+      receiveCardSetMessage("");
       drawnThisStep = null;
     } else if (eligible) {
       drawnThisStep = receiveCardDrawCard();
@@ -373,38 +595,215 @@
       );
     }
 
-    handStrip.innerHTML = "";
-    var conquestStartIdx = Math.max(0, currentPlayer.cards.length - transferredCount);
-    currentPlayer.cards.forEach(function (card, idx) {
-      var cardName = typeof card === "string" ? card : card.name;
-      var img = document.createElement("img");
-      img.className = "receivecard-thumb";
-      if (drawnThisStep && cardName === drawnThisStep.name) {
-        img.classList.add("receivecard-thumb-new");
-      } else {
-        img.classList.add("receivecard-thumb-existing");
-      }
-      if (conquestElimReview && transferredCount > 0 && idx >= conquestStartIdx) {
-        img.classList.add("receivecard-thumb-conquest");
-      }
-      img.src = "assets/images/Cards/" + String(cardName || "").toUpperCase() + ".webp";
-      img.alt = cardName.replace(/_/g, " ");
-      handStrip.appendChild(img);
-    });
+    window.__risqueReceiveCardStagingMerged = false;
+    window.__risqueReceiveCardStagingMergeNeeded = !!drawnThisStep;
 
-    if (newImg) {
-      if (drawnThisStep) {
-        newImg.src = "assets/images/Cards/" + String(drawnThisStep.name || "").toUpperCase() + ".webp";
-        newImg.alt = drawnThisStep.name.replace(/_/g, " ");
-        newImg.classList.add("receivecard-new-glow");
+    var nHand = currentPlayer.cards.length;
+    var lastCard = nHand > 0 ? currentPlayer.cards[nHand - 1] : null;
+    var lastName = lastCard ? (typeof lastCard === "string" ? lastCard : lastCard.name) : "";
+    var stagingShowsNewDraw =
+      !!drawnThisStep && lastName === drawnThisStep.name && nHand >= 1;
+    var conquestStartIdx = Math.max(0, currentPlayer.cards.length - transferredCount);
+
+    if (useDual) {
+      upperStrip.innerHTML = "";
+      stagingGrid.innerHTML = "";
+      if (stagingWrap) stagingWrap.removeAttribute("hidden");
+      var stagingStripLabel = document.getElementById("receivecard-staging-strip-label");
+      var upperStripLabelEl = document.getElementById("receivecard-upper-strip-label");
+      if (upperStripLabelEl && !conquestElimReview) {
+        upperStripLabelEl.textContent = "Cards in hand";
+      }
+      if (stagingStripLabel && !conquestElimReview) {
+        stagingStripLabel.textContent = "Received card";
+      }
+      if (stagingShowsNewDraw) {
+        currentPlayer.cards.slice(0, -1).forEach(function (card, idx) {
+          var cardName = typeof card === "string" ? card : card.name;
+          var img = document.createElement("img");
+          img.className = "receivecard-thumb receivecard-thumb-existing";
+          if (conquestElimReview && transferredCount > 0 && idx >= conquestStartIdx) {
+            img.classList.add("receivecard-thumb-conquest");
+          }
+          img.src = "assets/images/Cards/" + String(cardName || "").toUpperCase() + ".webp";
+          img.alt = cardName.replace(/_/g, " ");
+          upperStrip.appendChild(img);
+        });
+        receiveCardAppendThumbToStrip(
+          stagingGrid,
+          drawnThisStep.name,
+          "receivecard-thumb-new receivecard-new-glow"
+        );
+      } else if (conquestElimReview) {
+        /* Merged hand in state = [your cards before elimination][defender's cards]. Prefer slicing by
+         * transferredCardCount so UI matches JSON (snapshots first caused duplicates after loads). */
+        var defeatedDisp =
+          gs.defeatedPlayer != null && String(gs.defeatedPlayer).trim() !== ""
+            ? String(gs.defeatedPlayer).trim()
+            : "eliminated player";
+        var snapBefore = Array.isArray(gs.risqueConquestHandBeforeTakeover)
+          ? gs.risqueConquestHandBeforeTakeover
+          : null;
+        var snapTaken = Array.isArray(gs.risqueConquestTakenCards) ? gs.risqueConquestTakenCards : null;
+        var snapOk =
+          snapBefore &&
+          snapTaken &&
+          snapBefore.length + snapTaken.length > 0;
+        var upperStripLabel = document.getElementById("receivecard-upper-strip-label");
+        if (upperStripLabel) {
+          upperStripLabel.textContent =
+            transferredCount > 0 ? "Your hand (before transfer)" : "Cards in hand";
+        }
+        if (stagingStripLabel) {
+          stagingStripLabel.textContent =
+            transferredCount > 0
+              ? "Cards taken from " + defeatedDisp
+              : "Cards from " + defeatedDisp;
+        }
+        var nMerge = currentPlayer.cards.length;
+        var splitOk =
+          transferredCount > 0 && transferredCount <= nMerge;
+
+        function renderConquestSplitUpperTaken(beforeNames, takenNames) {
+          var cn = window.gameUtils && window.gameUtils.cardNames ? window.gameUtils.cardNames : null;
+          beforeNames.forEach(function (nm) {
+            var canon = receiveCardCanonicalTerritoryCardName(nm);
+            if (!canon || !cn || cn.indexOf(canon) === -1) return;
+            var img = document.createElement("img");
+            img.className = "receivecard-thumb receivecard-thumb-existing";
+            img.src = "assets/images/Cards/" + canon.toUpperCase() + ".webp";
+            img.alt = canon.replace(/_/g, " ");
+            upperStrip.appendChild(img);
+          });
+          takenNames.forEach(function (nm) {
+            var canon = receiveCardCanonicalTerritoryCardName(nm);
+            if (!canon || !cn || cn.indexOf(canon) === -1) return;
+            receiveCardAppendThumbToStrip(
+              stagingGrid,
+              canon,
+              "receivecard-thumb-existing receivecard-thumb-conquest"
+            );
+          });
+        }
+
+        if (splitOk) {
+          var cut = nMerge - transferredCount;
+          renderConquestSplitUpperTaken(
+            currentPlayer.cards.slice(0, cut).map(function (c) {
+              return typeof c === "string" ? c : c.name;
+            }),
+            currentPlayer.cards.slice(cut).map(function (c) {
+              return typeof c === "string" ? c : c.name;
+            })
+          );
+        } else if (transferredCount === 0) {
+          if (upperStripLabel) {
+            upperStripLabel.textContent = "Cards in hand";
+          }
+          if (stagingStripLabel) {
+            stagingStripLabel.textContent = "Taken cards";
+          }
+          currentPlayer.cards.forEach(function (card) {
+            var cardName = typeof card === "string" ? card : card.name;
+            var img = document.createElement("img");
+            img.className = "receivecard-thumb receivecard-thumb-existing";
+            img.src = "assets/images/Cards/" + String(cardName || "").toUpperCase() + ".webp";
+            img.alt = String(cardName || "").replace(/_/g, " ");
+            upperStrip.appendChild(img);
+          });
+          stagingGrid.innerHTML =
+            '<div class="receivecard-staging-conquest-note" role="status">' +
+            "<p>No <strong>transferred card count</strong> (unexpected). Full current hand is above.</p>" +
+            "</div>";
+        } else if (snapOk) {
+          receiveCardLog("Conquest split: using snapshots (transfer count vs hand mismatch)", {
+            transferredCount: transferredCount,
+            handLen: nMerge
+          });
+          renderConquestSplitUpperTaken(snapBefore, snapTaken);
+        } else {
+          receiveCardLog("Conquest receive-card: split mismatch", {
+            transferredCount: transferredCount,
+            handLen: currentPlayer.cards.length,
+            conquestStartIdx: conquestStartIdx,
+            defeated: defeatedDisp
+          });
+          currentPlayer.cards.forEach(function (card, idx) {
+            var cardName = typeof card === "string" ? card : card.name;
+            var img = document.createElement("img");
+            img.className = "receivecard-thumb receivecard-thumb-existing";
+            if (transferredCount > 0 && idx >= Math.max(0, currentPlayer.cards.length - transferredCount)) {
+              img.classList.add("receivecard-thumb-conquest");
+            }
+            img.src = "assets/images/Cards/" + String(cardName || "").toUpperCase() + ".webp";
+            img.alt = String(cardName || "").replace(/_/g, " ");
+            upperStrip.appendChild(img);
+          });
+          stagingGrid.innerHTML =
+            '<div class="receivecard-staging-conquest-note" role="status">' +
+            "<p><strong>Could not split</strong> using saved transfer count (" +
+            transferredCount +
+            ") and current hand (" +
+            currentPlayer.cards.length +
+            "). Full merged hand is shown above; gold outline uses the last N cards if N matches.</p>" +
+            "<p>Territory deck card still comes <strong>after reinforcement</strong>.</p>" +
+            "</div>";
+        }
       } else {
-        newImg.src = "assets/images/Cards/CARDBACK.webp";
-        newImg.alt = conquestElimReview
-          ? "Deck card after reinforcement"
-          : eligible
-            ? "No card"
-            : "No card earned";
-        newImg.classList.remove("receivecard-new-glow");
+        currentPlayer.cards.forEach(function (card) {
+          var cardName = typeof card === "string" ? card : card.name;
+          var img = document.createElement("img");
+          img.className = "receivecard-thumb receivecard-thumb-existing";
+          img.src = "assets/images/Cards/" + String(cardName || "").toUpperCase() + ".webp";
+          img.alt = cardName.replace(/_/g, " ");
+          upperStrip.appendChild(img);
+        });
+        var placeholderAlt = eligible
+          ? "No unique card from deck"
+          : "No deck card earned this turn";
+        stagingGrid.innerHTML =
+          '<div class="receivecard-staging-placeholder-wrap">' +
+          '<img class="receivecard-thumb receivecard-staging-placeholder" src="assets/images/Cards/CARDBACK.webp" alt="" />' +
+          '<div class="receivecard-staging-placeholder-caption">' +
+          placeholderAlt +
+          "</div></div>";
+      }
+    } else if (legacyHandStrip) {
+      legacyHandStrip.innerHTML = "";
+      currentPlayer.cards.forEach(function (card, idx) {
+        var cardName = typeof card === "string" ? card : card.name;
+        var img = document.createElement("img");
+        img.className = "receivecard-thumb";
+        if (drawnThisStep && cardName === drawnThisStep.name) {
+          img.classList.add("receivecard-thumb-new");
+        } else {
+          img.classList.add("receivecard-thumb-existing");
+        }
+        if (conquestElimReview && transferredCount > 0 && idx >= conquestStartIdx) {
+          img.classList.add("receivecard-thumb-conquest");
+        }
+        img.src = "assets/images/Cards/" + String(cardName || "").toUpperCase() + ".webp";
+        img.alt = cardName.replace(/_/g, " ");
+        legacyHandStrip.appendChild(img);
+      });
+      if (newImg) {
+        if (drawnThisStep) {
+          newImg.style.display = "";
+          newImg.src = "assets/images/Cards/" + String(drawnThisStep.name || "").toUpperCase() + ".webp";
+          newImg.alt = drawnThisStep.name.replace(/_/g, " ");
+          newImg.classList.add("receivecard-new-glow");
+        } else if (conquestElimReview) {
+          /* Same rule as dual-pane staging: no misleading deck cardback after elimination. */
+          newImg.style.display = "none";
+          newImg.removeAttribute("src");
+          newImg.alt = "";
+          newImg.classList.remove("receivecard-new-glow");
+        } else {
+          newImg.style.display = "";
+          newImg.src = "assets/images/Cards/CARDBACK.webp";
+          newImg.alt = eligible ? "No card" : "No card earned";
+          newImg.classList.remove("receivecard-new-glow");
+        }
       }
     }
 
@@ -486,6 +885,8 @@
     });
     gs.defeatedPlayer = null;
     gs.transferredCardCount = 0;
+    delete gs.risqueConquestHandBeforeTakeover;
+    delete gs.risqueConquestTakenCards;
     gs.risqueConquestElimReceiveCard = false;
     gs.phase = "cardplay";
     if (typeof window.risqueReplayOnHostEnterCardplay === "function" && !window.risqueDisplayIsPublic) {
@@ -570,141 +971,13 @@
       receiveCardLog("Ignored duplicate end-turn (still processing)");
       return;
     }
-    window.__risqueReceiveCardEndTurnBusy = true;
-    receiveCardSetContinueSaving(true);
-    var advTurn = receiveCardAdvanceTurn();
-    if (advTurn === false) {
-      receiveCardSetContinueSaving(false);
-      try {
-        window.__risqueReceiveCardEndTurnBusy = false;
-      } catch (eRel0) {
-        /* ignore */
-      }
+    if (window.__risqueReceiveCardStagingMergeNeeded && !window.__risqueReceiveCardStagingMerged) {
+      window.__risqueReceiveCardEndTurnBusy = true;
+      receiveCardScheduleAdvanceAfterStagingMerge();
       return;
     }
-    try {
-      var gsAfter = window.gameState || {};
-      try {
-        delete gsAfter.risqueControlVoice;
-      } catch (eCvDel) {
-        /* ignore */
-      }
-      var nextPlayerName = (gsAfter.currentPlayer ? gsAfter.currentPlayer : "the next player").toString();
-      try {
-        gsAfter.risquePublicNextPlayerHandoffPrimary = "Next player is " + nextPlayerName;
-        gsAfter.risquePublicNextPlayerHandoffReport = "";
-      } catch (eHand) {
-        /* ignore */
-      }
-      try {
-        localStorage.setItem("gameState", JSON.stringify(gsAfter));
-      } catch (e) {
-        /* ignore */
-      }
-      /**
-       * Round autosave + per-turn disk (rNpM / rNpMgame) must finish before navigation: risqueNavigateWithFade
-       * sets location.href synchronously; without awaiting, the host page can unload mid-write (missing seats).
-       */
-      var completedRound = advTurn.completedRound;
-      var roundSaveChain = Promise.resolve();
-      if (completedRound > 0 && typeof window.risqueRoundAutosaveOnRoundComplete === "function") {
-        var completedFromState = (Number(gsAfter.round) || 0) - 1;
-        var crArg = completedFromState > 0 ? completedFromState : completedRound;
-        var maybeSaveP = window.risqueRoundAutosaveOnRoundComplete(gsAfter, crArg);
-        if (maybeSaveP && typeof maybeSaveP.then === "function") {
-          roundSaveChain = maybeSaveP;
-        }
-      }
-      var diskChain =
-        advTurn.turnDisk && typeof advTurn.turnDisk.then === "function"
-          ? advTurn.turnDisk
-          : Promise.resolve(true);
-      if (
-        (!advTurn.turnDisk || typeof advTurn.turnDisk.then !== "function") &&
-        typeof window.risqueSessionDiskHasWritableSaveTarget === "function" &&
-        window.risqueSessionDiskHasWritableSaveTarget()
-      ) {
-        receiveCardLog("Missing turnDisk with active save target; awaiting write queue.");
-        diskChain =
-          typeof window.risqueSessionDiskAwaitTurnWriteQueue === "function"
-            ? window.risqueSessionDiskAwaitTurnWriteQueue()
-            : diskChain;
-      }
-      function runReceiveCardHandoffAndNavigate() {
-      if (typeof window.risqueHostReplaceShellGameState === "function") {
-        window.risqueHostReplaceShellGameState(gsAfter);
-      }
-      if (typeof window.risqueMirrorPushGameState === "function") {
-        window.risqueMirrorPushGameState();
-      }
-      var nextHandoffMsg =
-        "Next player\n\nHand the tablet to " + nextPlayerName + " for card play.\n\nOnly this player should tap Continue.";
-      function goNextPlayerCardplay() {
-        var target = "game.html?phase=cardplay&legacyNext=income.html&postReceive=1";
-        if (typeof window.risqueMarkPostReceiveCardplayBlackout === "function") {
-          window.risqueMarkPostReceiveCardplayBlackout();
-        }
-        if (
-          typeof window.risqueNavigateGameHtmlSoft === "function" &&
-          window.risqueNavigateGameHtmlSoft(target)
-        ) {
-          try {
-            window.__risqueReceiveCardEndTurnBusy = false;
-          } catch (eBusySoft) {}
-          return;
-        }
-        if (window.risqueNavigateWithFade) {
-          window.risqueNavigateWithFade(target);
-        } else {
-          window.location.href = target;
-        }
-      }
-      var PGn = window.risquePhases && window.risquePhases.privacyGate;
-      if (!window.risqueDisplayIsPublic && PGn && typeof PGn.mountHostTabletHandoff === "function") {
-        PGn.mountHostTabletHandoff({
-          message: nextHandoffMsg,
-          onContinue: goNextPlayerCardplay,
-          onLog: function (line) {
-            receiveCardLog(line);
-          }
-        });
-      } else {
-        goNextPlayerCardplay();
-      }
-      }
-      Promise.all([roundSaveChain, diskChain])
-        .then(function () {
-          return typeof window.risqueSessionDiskAwaitTurnWriteQueue === "function"
-            ? window.risqueSessionDiskAwaitTurnWriteQueue()
-            : Promise.resolve(true);
-        })
-        .then(
-          function () {
-            runReceiveCardHandoffAndNavigate();
-            /* Do not re-enable Continue here: either we navigate away, or tablet handoff is on top — re-enabling
-             * allowed rapid second clicks on #ui-overlay (above the old z-index:999998 gate) before navigation. */
-          },
-          function (err) {
-            receiveCardLog("Turn save / round autosave failed", err);
-            receiveCardSetMessage(
-              "Could not finish saving to disk. Check folder access, wait a moment, then tap Continue again."
-            );
-            receiveCardSetContinueSaving(false);
-            try {
-              window.__risqueReceiveCardEndTurnBusy = false;
-            } catch (eRelF) {
-              /* ignore */
-            }
-          }
-        );
-    } catch (eRcBody) {
-      try {
-        window.__risqueReceiveCardEndTurnBusy = false;
-      } catch (eRelB) {
-        /* ignore */
-      }
-      throw eRcBody;
-    }
+    window.__risqueReceiveCardEndTurnBusy = true;
+    receiveCardRunTurnAdvanceAndHandoff();
   }
 
   function receiveCardPrepareLoadedState() {
@@ -720,10 +993,19 @@
         player.cards = [];
         player.cardCount = 0;
       } else {
-        player.cards = player.cards.filter(function (card) {
-          var cardName = typeof card === "string" ? card : card.name;
-          return window.gameUtils.cardNames.indexOf(cardName) !== -1;
-        });
+        player.cards = player.cards
+          .map(function (card) {
+            var raw = typeof card === "string" ? card : card && card.name;
+            var canon = receiveCardCanonicalTerritoryCardName(raw);
+            if (!canon || window.gameUtils.cardNames.indexOf(canon) === -1) return null;
+            if (typeof card === "string") return canon;
+            var o = Object.assign({}, card);
+            o.name = canon;
+            return o;
+          })
+          .filter(function (c) {
+            return c != null;
+          });
         player.cardCount = player.cards.length;
       }
     });
@@ -810,6 +1092,16 @@
     try {
       window.__risqueReceiveCardEndTurnBusy = false;
     } catch (eBusyMount) {}
+    try {
+      if (window.__risqueReceiveCardStagingTimer) {
+        clearTimeout(window.__risqueReceiveCardStagingTimer);
+      }
+    } catch (eStg) {
+      /* ignore */
+    }
+    window.__risqueReceiveCardStagingTimer = null;
+    window.__risqueReceiveCardStagingMergeNeeded = false;
+    window.__risqueReceiveCardStagingMerged = false;
 
     uiOverlay.classList.add("visible");
     uiOverlay.classList.remove("fade-out");
@@ -859,11 +1151,17 @@
       }
       var slot = document.getElementById("risque-phase-content");
       if (slot) {
-        var conquestHead = conquestElim
+        var conquestUi =
+          conquestElim ||
+          !!(window.gameState && window.gameState.risqueConquestElimReceiveCard);
+        var conquestHead = conquestUi
           ? '<div class="receivecard-strip-label receivecard-strip-label--conquest">Conquest · take eliminated player\'s cards</div>'
           : "";
+        var rootExtraClass = conquestUi ? " receivecard-compact-root--conquest-elim" : "";
         slot.innerHTML =
-          '<div class="receivecard-compact-root receivecard-compact-root--simple" role="region" aria-label="Your cards">' +
+          '<div class="receivecard-compact-root receivecard-compact-root--simple' +
+          rootExtraClass +
+          '" role="region" aria-label="Your cards">' +
           '<div class="risque-book-pill-row">' +
           '<div id="receivecard-book-pill" class="risque-book-pill" hidden role="status" aria-hidden="true">' +
           '<span class="risque-book-pill-label">BOOK</span>' +
@@ -871,10 +1169,16 @@
           "</div>" +
           "</div>" +
           conquestHead +
-          '<div class="receivecard-strip-label">Your hand</div>' +
           '<div id="receivecard-compact-message" class="receivecard-compact-message" aria-live="polite"></div>' +
-          '<div class="receivecard-compact-visual">' +
-          '<div id="receivecard-hand-strip" class="receivecard-hand-strip"></div>' +
+          '<div class="receivecard-hand-staging-split">' +
+          '<div class="receivecard-hand-stack">' +
+          '<div id="receivecard-upper-strip-label" class="receivecard-strip-label">Cards in hand</div>' +
+          '<div id="receivecard-hand-strip-upper" class="receivecard-hand-strip receivecard-hand-strip--upper"></div>' +
+          "</div>" +
+          '<div id="receivecard-staging-wrap" class="receivecard-staging-wrap">' +
+          '<div id="receivecard-staging-strip-label" class="receivecard-strip-label receivecard-strip-label--staging">Received card</div>' +
+          '<div id="receivecard-staging-grid" class="receivecard-staging-grid"></div>' +
+          "</div>" +
           "</div>" +
           '<div class="receivecard-compact-actions receivecard-compact-actions--bottom">' +
           '<button type="button" id="receivecard-btn-end" class="receivecard-btn-compact">CONTINUE</button>' +
@@ -888,8 +1192,14 @@
       uiOverlay.innerHTML =
         '<div class="text title" style="left:1152px;top:328px;width:704px;height:80px;">Receive Card</div>' +
         '<div id="receivecard-compact-message" class="text" style="left:1152px;top:380px;width:704px;font-size:28px;"></div>' +
-        '<div id="receivecard-hand-strip" style="position:absolute;left:1100px;top:480px;display:flex;gap:6px;flex-wrap:wrap;max-width:800px;"></div>' +
-        '<img id="receivecard-new-img" class="card-image" style="left:1250px;top:620px;width:150px;height:240px;" src="assets/images/Cards/CARDBACK.webp" alt="" />' +
+        '<div id="receivecard-hand-staging-split" style="position:absolute;left:1100px;top:460px;width:800px;display:flex;flex-direction:column;gap:12px;">' +
+        '<div><div style="color:#0f0;font-size:14px;font-weight:bold;">CARDS IN HAND</div>' +
+        '<div id="receivecard-hand-strip-upper" style="display:flex;gap:6px;flex-wrap:wrap;"></div></div>' +
+        '<div style="border:1px solid #0f0;padding:8px;border-radius:6px;">' +
+        '<div style="color:#0f0;font-size:14px;font-weight:bold;">RECEIVED CARD</div>' +
+        '<div id="receivecard-staging-grid" style="display:flex;gap:8px;flex-wrap:wrap;min-height:120px;"></div></div></div>' +
+        '<div id="receivecard-hand-strip" style="display:none"></div>' +
+        '<img id="receivecard-new-img" class="card-image" style="display:none;left:1250px;top:620px;width:150px;height:240px;" src="assets/images/Cards/CARDBACK.webp" alt="" />' +
         '<button type="button" id="receivecard-btn-end" class="button" style="left:1250px;top:900px;width:280px;height:36px;">Continue</button>';
     }
 

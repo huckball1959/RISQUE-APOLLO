@@ -346,7 +346,7 @@ function reinforceFindPromptButton(buttons, needle) {
 
 /**
  * Host reinforce: map shared showPrompt buttons into the panel (slot strip unused).
- * Called from phases/attack.js instead of filling control-btn-0..5.
+ * Called from phases/attack.js instead of filling control-btn-0..3.
  */
 window.risqueReinforceHostApplyPrompt = function (buttons) {
   reinforceHostClearSlotStripButtons();

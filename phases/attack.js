@@ -786,12 +786,28 @@ function checkPlayerElimination(defenderPlayer) {
   const currentPlayer = window.gameState.players.find(p => p.name === window.gameState.currentPlayer);
   currentPlayer.cards = currentPlayer.cards || [];
   const transferredCards = defenderPlayer.cards || [];
+  const risqueCardNameNorm = c => {
+    const raw = typeof c === "string" ? c : c && c.name ? String(c.name) : "";
+    if (!raw) return "";
+    return raw
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+  };
+  /* Receive-card conquest UI splits hand vs taken cards; survives if transferredCardCount is cleared later. */
+  window.gameState.risqueConquestHandBeforeTakeover = currentPlayer.cards.map(risqueCardNameNorm);
+  window.gameState.risqueConquestTakenCards = transferredCards.map(risqueCardNameNorm);
   currentPlayer.cards.push(...transferredCards);
   currentPlayer.cardCount = currentPlayer.cards.length;
   defenderPlayer.cards = [];
   defenderPlayer.cardCount = 0;
   window.gameState.transferredCardCount = transferredCards.length;
   window.gameState.cardEarnedViaAttack = true;
+  requestAnimationFrame(function () {
+    if (typeof window.risqueSyncHostAttackCardEarnedIndicator === 'function') {
+      window.risqueSyncHostAttackCardEarnedIndicator();
+    }
+  });
   window.gameState.defeatedPlayer = defenderPlayer.name;
   const turnOrderBeforeElimination = Array.isArray(window.gameState.turnOrder)
     ? window.gameState.turnOrder.slice()
@@ -1197,12 +1213,53 @@ function risqueTroopTransferOnShortcutChosen(which) {
   if (which === 'all-but-one' && b0 && b1) {
     b0.classList.add('risque-troop-transfer-allbut-selected');
     b1.classList.add('risque-troop-transfer-allbut-dim');
-  } else if (which === 'all-but-three' && b0 && b1) {
+  } else   if (which === 'all-but-three' && b0 && b1) {
     b1.classList.add('risque-troop-transfer-allbut-selected');
     b0.classList.add('risque-troop-transfer-allbut-dim');
   }
   if (b2) b2.classList.add('risque-confirm-slot-flash');
 }
+
+/**
+ * Host attack phase: deck-card earned indicator under Continue to reinforcement (not slot buttons).
+ */
+function syncHostAttackCardEarnedIndicator() {
+  const gs = window.gameState;
+  const hostAttack =
+    !window.risqueDisplayIsPublic && gs && String(gs.phase || '') === 'attack';
+  const earned = !!(gs && (gs.cardEarnedViaAttack || gs.cardEarnedViaCardplay));
+  const tip =
+    earned
+      ? 'You earned a territory deck card this turn (capture or territory won via cardplay).'
+      : 'No deck card yet this turn — capture a territory or take one via cardplay to earn one.';
+
+  const deckVis = document.getElementById('risque-host-deck-earned-visual');
+  const deckLbl = document.getElementById('risque-host-deck-earned-label');
+  if (!deckVis || !deckLbl) return;
+
+  if (!hostAttack) {
+    deckVis.hidden = true;
+    deckVis.setAttribute('aria-hidden', 'true');
+    deckLbl.textContent = '';
+    deckLbl.removeAttribute('title');
+    deckVis.removeAttribute('title');
+    deckVis.classList.remove(
+      'risque-host-deck-earned-visual--earned',
+      'risque-host-deck-earned-visual--pending'
+    );
+    return;
+  }
+
+  deckVis.hidden = false;
+  deckVis.setAttribute('aria-hidden', 'false');
+  deckVis.classList.toggle('risque-host-deck-earned-visual--earned', earned);
+  deckVis.classList.toggle('risque-host-deck-earned-visual--pending', !earned);
+  deckLbl.textContent = earned ? 'CARD EARNED' : 'NO CARD EARNED YET';
+  deckLbl.title = tip;
+  deckVis.title = tip;
+}
+
+window.risqueSyncHostAttackCardEarnedIndicator = syncHostAttackCardEarnedIndicator;
 
 function syncAttackPhaseActionLocks() {
   const gs = window.gameState;
@@ -1325,6 +1382,8 @@ function clearControlVoiceSlotsAndExtras() {
       b.classList.add('ucp-slot-empty');
     }
   }
+
+  syncHostAttackCardEarnedIndicator();
 
   teardownAttackTroopTransferWheel();
   const ti = document.getElementById('troops-input');
@@ -1604,6 +1663,8 @@ function showPrompt(message, buttons = [], selectOptions = null, report = '') {
       }
     }
   }
+
+  syncHostAttackCardEarnedIndicator();
 
   try {
     if (document.body && window.gameState && String(window.gameState.phase) === "reinforce") {
@@ -2031,6 +2092,11 @@ function applyBattleRoundAfterRoll(snap, opts) {
     opponent.territories = opponent.territories.filter(t => t.name !== defenderTerritory.name);
     player.territories.push({ name: defenderTerritory.name, troops: minTroopsToTransfer });
     window.gameState.cardEarnedViaAttack = true;
+    requestAnimationFrame(function () {
+      if (typeof window.risqueSyncHostAttackCardEarnedIndicator === 'function') {
+        window.risqueSyncHostAttackCardEarnedIndicator();
+      }
+    });
     window.gameState.conqueredThisTurn = true;
     window.gameState.attackingTerritory = { name: attackerTerritory.name, troops: attackerTerritory.troops };
     window.gameState.acquiredTerritory = { name: defenderTerritory.name, troops: minTroopsToTransfer };
@@ -5986,8 +6052,10 @@ function initAttackPhase(mountEpoch) {
     window.gameUtils.renderTerritories(null, window.gameState);
     renderAerialBridge();
     syncAttackPhaseActionLocks();
+    syncHostAttackCardEarnedIndicator();
     requestAnimationFrame(function () {
       syncAttackPhaseActionLocks();
+      syncHostAttackCardEarnedIndicator();
     });
     window.__risqueAttackInitialized = true;
   });
@@ -6168,7 +6236,7 @@ window.initAttackPhase = initAttackPhase;
             '</div></div></div>' +
             '</div>' +
             '<button id="new-attack" class="attack-ctl-btn attack-ctl-new" type="button" title="Cancel all attacks">CLEAR</button>' +
-            '<button id="reinforce" class="attack-ctl-btn attack-ctl-reinforce" type="button" title="Reinforcement phase">REINFORCE</button>' +
+            '<button id="reinforce" class="attack-ctl-btn attack-ctl-reinforce" type="button" title="Continue to reinforcement phase">CONTINUE TO REINFORCEMENT</button>' +
             '<div id="aerial-attack-group">' +
               '<button id="aerial-attack" class="attack-ctl-btn attack-ctl-aerial" type="button" title="First aerial bridge (wildcard)">AERIAL</button>' +
               '<button id="aerial-attack-2" class="attack-ctl-btn attack-ctl-aerial" type="button" title="Second aerial bridge (wildcard)">AERIAL</button>' +
@@ -6203,8 +6271,6 @@ window.initAttackPhase = initAttackPhase;
               '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-1" disabled title="" aria-label="Action slot 2"></button>' +
               '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-2" disabled title="" aria-label="Action slot 3"></button>' +
               '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-3" disabled title="" aria-label="Action slot 4"></button>' +
-              '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-4" disabled title="" aria-label="Action slot 5"></button>' +
-              '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-5" disabled title="" aria-label="Action slot 6"></button>' +
             '</div>' +
             '<div class="ucp-slot-strip-num-wrap">' +
               '<label id="ucp-voice-number-label" class="ucp-slot-strip-label" for="troops-input">Amount</label>' +

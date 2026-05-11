@@ -130,8 +130,6 @@
           '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-1" disabled title="" aria-label="Action slot 2"></button>' +
           '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-2" disabled title="" aria-label="Action slot 3"></button>' +
           '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-3" disabled title="" aria-label="Action slot 4"></button>' +
-          '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-4" disabled title="" aria-label="Action slot 5"></button>' +
-          '<button type="button" class="ucp-slot-ctl ucp-slot-empty" id="control-btn-5" disabled title="" aria-label="Action slot 6"></button>' +
         "</div>" +
         '<div class="ucp-slot-strip-num-wrap">' +
           '<label id="ucp-voice-number-label" class="ucp-slot-strip-label" for="troops-input">Amount</label>' +
@@ -141,7 +139,15 @@
       "</div>" +
       '<div id="log-text" class="ucp-terminal ucp-combat-log" aria-live="polite"></div>' +
       '<div class="attack-reinforce-footer" role="group" aria-label="Reinforcement phase">' +
-      '<button id="reinforce" class="attack-ctl-btn attack-ctl-reinforce" type="button" title="Reinforcement phase">REINFORCE</button>' +
+      '<button id="reinforce" class="attack-ctl-btn attack-ctl-reinforce" type="button" title="Continue to reinforcement phase">CONTINUE TO REINFORCEMENT</button>' +
+      '<div id="risque-host-deck-earned-visual" class="risque-host-deck-earned-visual" hidden aria-hidden="true">' +
+      '<div id="risque-host-deck-earned-label" class="risque-host-deck-earned-label"></div>' +
+      '<div class="risque-host-deck-earned-cardbox">' +
+      '<img class="risque-host-deck-earned-back" src="assets/images/Cards/CARDBACK.webp" alt="" width="152" height="236" />' +
+      '<span class="risque-host-deck-earned-forbid" aria-hidden="true"></span>' +
+      '<span class="risque-host-deck-earned-check" aria-hidden="true"></span>' +
+      "</div>" +
+      "</div>" +
       "</div>"
     );
   }
