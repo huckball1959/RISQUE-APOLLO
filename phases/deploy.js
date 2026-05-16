@@ -608,6 +608,13 @@
           if (typeof window.risqueReplayRecordDeploy === "function") {
             window.risqueReplayRecordDeploy(gameState);
           }
+          if (typeof window.risqueCheapReplayCapturePostSetupDeploy === "function") {
+            try {
+              window.risqueCheapReplayCapturePostSetupDeploy(gameState);
+            } catch (eCheapPd) {
+              /* ignore */
+            }
+          }
           if (typeof window.risqueReplayTryWriteDdJsonAfterSetupDeploy === "function") {
             window.risqueReplayTryWriteDdJsonAfterSetupDeploy(gameState);
           }
@@ -1637,6 +1644,13 @@
           clearTurnDeployChromeThenRedraw();
           if (typeof window.risqueReplayRecordDeploy === "function") {
             window.risqueReplayRecordDeploy(gameState);
+          }
+          if (typeof window.risqueCheapReplayCaptureTurnDeployDone === "function") {
+            try {
+              window.risqueCheapReplayCaptureTurnDeployDone(gameState);
+            } catch (eTdd) {
+              /* ignore */
+            }
           }
           localStorage.setItem("gameState", JSON.stringify(gameState));
           pushDeployMirror();

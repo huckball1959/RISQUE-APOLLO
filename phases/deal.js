@@ -165,6 +165,13 @@
       if (typeof window.risqueMirrorPushGameState === "function") {
         window.risqueMirrorPushGameState();
       }
+      if (typeof window.risqueCheapReplayCapturePostDeal === "function") {
+        try {
+          window.risqueCheapReplayCapturePostDeal(gameState);
+        } catch (eCheapDeal) {
+          /* ignore */
+        }
+      }
       logLines("Deal complete → deploy-order selection", logFn);
       if (window.risqueRuntimeHud && typeof window.risqueRuntimeHud.setControlVoiceText === "function") {
         window.risqueRuntimeHud.setControlVoiceText("DEAL COMPLETE — NEXT: DEPLOY ORDER", "");

@@ -3562,46 +3562,65 @@ body[data-risque-phase="postgame"] #risque-host-cards-in-hand-panel {
 
 /* Private runtime: prompt text lives in control voice; dual pane (hand + staging) + Continue */
 .receivecard-compact-root--simple {
-  height: min(93vh, 824px);
+  height: auto;
   max-height: min(93vh, 824px);
   overflow: visible;
   gap: 8px;
   padding: 8px 10px 12px;
 }
 
-/* Receive card — upper hand + lower staging (cardplay-style split) */
+/* Dual-pane receive card: hand + staging already framed — drop legacy outer root box */
+.receivecard-compact-root--simple:has(.receivecard-hand-staging-split) {
+  border: none;
+  background: transparent;
+}
+
+/* Receive card — upper hand pane + lower staging pane (stacked, content-sized; no inner scroll) */
 .receivecard-compact-root--simple .receivecard-hand-staging-split {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 0 1 auto;
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
   box-sizing: border-box;
+  overflow: visible;
+  isolation: isolate;
 }
 
 .receivecard-hand-staging-split .receivecard-hand-stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  flex: 1 1 0;
-  min-height: 0;
+  gap: 6px;
+  flex: 0 0 auto;
   width: 100%;
-  overflow: hidden;
+  overflow: visible;
+  padding: 8px 8px 10px;
+  border: 1px solid #00ff00;
+  border-radius: 6px;
+  background: rgba(0, 20, 0, 0.55);
+  box-sizing: border-box;
 }
 
 .receivecard-hand-staging-split .receivecard-staging-wrap {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  flex: 1 1 auto;
-  min-height: 204px;
+  flex: 0 0 auto;
   width: 100%;
-  padding: 10px 8px 14px;
+  padding: 10px 8px 12px;
   border: 1px solid #00ff00;
   border-radius: 6px;
   background: rgba(0, 24, 0, 0.45);
   box-sizing: border-box;
+  overflow: visible;
+}
+
+.receivecard-strip-label--staging {
+  color: #86efac;
+}
+
+.receivecard-hand-staging-split .receivecard-strip-label {
+  flex-shrink: 0;
 }
 
 .receivecard-staging-grid {
@@ -3610,10 +3629,19 @@ body[data-risque-phase="postgame"] #risque-host-cards-in-hand-panel {
   flex-wrap: wrap;
   gap: 8px;
   align-items: flex-start;
+  align-content: flex-start;
   justify-content: flex-start;
-  flex: 1 1 auto;
-  min-height: min(192px, 22vh);
+  flex: 0 0 auto;
+  align-self: flex-start;
+  width: 100%;
+  overflow: visible;
   box-sizing: border-box;
+}
+
+@media (max-height: 780px) {
+  .receivecard-compact-root--simple .receivecard-hand-staging-split {
+    gap: 10px;
+  }
 }
 
 /* Conquest elimination receive-card: explain deck draw timing — no cardback image */
@@ -3648,11 +3676,10 @@ body[data-risque-phase="postgame"] #risque-host-cards-in-hand-panel {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
   width: 100%;
-  min-height: 132px;
-  padding: 6px 4px;
+  padding: 0 4px 4px;
   box-sizing: border-box;
 }
 
@@ -3678,11 +3705,9 @@ body[data-risque-phase="postgame"] #risque-host-cards-in-hand-panel {
 }
 
 .receivecard-compact-root--simple .receivecard-hand-strip--upper {
-  min-height: 64px;
-  max-height: min(40vh, 340px);
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding-bottom: 6px;
+  flex: 0 0 auto;
+  overflow: visible;
+  padding-bottom: 4px;
   box-sizing: border-box;
 }
 
@@ -4613,20 +4638,92 @@ html.risque-view-host
 
 /* Compact attack bar: single scrollable row (cond threshold lives at end of row) */
 /* Real flex wrappers (not display:contents) so BLITZ/CAMPAIGN/AERIAL match ROLL column width */
-#aerial-attack-group {
-  display: flex;
-  flex-direction: row;
-  flex: 1 1 0%;
-  min-width: 0;
+/* Two rows × six slots above control voice (flat toolbar) */
+.attack-control-panel .attack-toolbar-strip .ucp-slot-strip-buttons:has(.attack-toolbar-rows) {
+  flex-direction: column;
+  flex-wrap: nowrap;
   align-items: stretch;
   gap: 6px;
 }
 
-#aerial-attack-group .attack-ctl-btn {
-  flex: 1 1 auto;
+.attack-toolbar-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.attack-toolbar-row--6 {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
   width: 100%;
   min-width: 0;
-  align-self: stretch;
+  align-items: stretch;
+}
+
+.attack-toolbar-row--6 > .attack-blitz-wrap,
+.attack-toolbar-row--6 > .attack-campaign-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.attack-toolbar-row--6 .attack-ctl-btn {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: clamp(9px, 0.9vw, 12px);
+  padding: 3px 4px;
+}
+
+.attack-toolbar-row--qdev .attack-ctl-qdev {
+  background: #422006;
+  border-color: #f59e0b;
+  color: #fef3c7;
+  font-weight: 800;
+}
+
+.attack-toolbar-row--qdev .attack-ctl-qdev:hover:not(:disabled) {
+  background: #78350f;
+  border-color: #fbbf24;
+}
+
+.attack-toolbar-row--qdev .attack-ctl-qdev:disabled {
+  opacity: 0.45;
+}
+
+.attack-toolbar-row--6 .attack-blitz-wrap > .attack-ctl-btn,
+.attack-toolbar-row--6 .attack-campaign-wrap > .attack-ctl-btn {
+  width: 100%;
+}
+
+.attack-toolbar-slot-spacer {
+  display: block;
+  min-width: 0;
+}
+
+.attack-toolbar-row--6 .attack-ctl-step-pause[hidden],
+.attack-toolbar-row--6 .attack-ctl-step-cancel[hidden] {
+  display: none !important;
+}
+
+.attack-toolbar-row--6 > #aerial-attack-group {
+  grid-column: span 2;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.attack-toolbar-row--6 #aerial-attack-group .attack-ctl-btn {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
 }
 
 /* Dice-row toolbar: match #ucp-slot-strip spacing (gap 10 / 6, space-between) + 76px cond column */
@@ -4639,31 +4736,8 @@ html.risque-view-host
   flex-wrap: wrap;
 }
 
-/* Full-width row under ROLL/BLITZ/CAMPAIGN — PAUSE / CANCEL for Blitz Step & Campaign Step */
-.attack-control-panel .attack-toolbar-strip .attack-step-ctl-wrap {
-  flex: 1 1 100%;
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  align-items: stretch;
-  justify-content: center;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: 2px 0 4px;
-}
-
-.attack-control-panel .attack-toolbar-strip .attack-step-ctl-wrap[hidden] {
-  display: none !important;
-}
-
 .attack-control-panel .attack-toolbar-strip .attack-ctl-step-pause,
 .attack-control-panel .attack-toolbar-strip .attack-ctl-step-cancel {
-  flex: 1 1 0;
-  min-width: 0;
-  max-width: 200px;
-  min-height: 40px;
   font-weight: 900;
   letter-spacing: 0.06em;
 }
@@ -4850,10 +4924,8 @@ body.risque-view-host:not([data-risque-phase="attack"])
   justify-content: space-between;
 }
 
-.attack-control-panel .attack-toolbar-strip .ucp-slot-strip-buttons > .attack-blitz-wrap,
-.attack-control-panel .attack-toolbar-strip .ucp-slot-strip-buttons > .attack-campaign-wrap,
-.attack-control-panel .attack-toolbar-strip .ucp-slot-strip-buttons > #aerial-attack-group {
-  flex: 1 1 0%;
+.attack-control-panel .attack-toolbar-strip .ucp-slot-strip-buttons > .attack-toolbar-rows {
+  flex: 1 1 100%;
   min-width: 0;
 }
 
@@ -4901,6 +4973,8 @@ body.risque-view-host:not([data-risque-phase="attack"])
 
 .attack-ctl-roll,
 .attack-ctl-blitz,
+.attack-ctl-quick-blitz,
+.attack-ctl-quick-campaign,
 .attack-ctl-pausable,
 .attack-ctl-conditional,
 .attack-ctl-campaign,
@@ -6621,7 +6695,23 @@ body.risque-view-host[data-risque-phase="reinforce"] .reinforce-row--reset-num {
 }
 
 body.risque-view-host[data-risque-phase="reinforce"] .reinforce-row--reset-num:has(.reinforce-troops-holder[hidden]) {
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr minmax(5.5rem, 1.15fr);
+}
+
+body.risque-view-host[data-risque-phase="reinforce"] .reinforce-btn-protect {
+  background: #0f3d2e;
+  border-color: #34d399;
+  color: #ecfdf5;
+  font-weight: 800;
+}
+
+body.risque-view-host[data-risque-phase="reinforce"] .reinforce-btn-protect:hover:not(:disabled) {
+  background: #14532d;
+  border-color: #6ee7b7;
+}
+
+body.risque-view-host[data-risque-phase="reinforce"] .reinforce-row--reset-num:has(.reinforce-troops-holder:not([hidden])) {
+  grid-template-columns: 1fr minmax(5.5rem, 1.15fr) minmax(4rem, 5rem);
 }
 
 body.risque-view-host[data-risque-phase="reinforce"] .reinforce-row--confirm-only {
@@ -6766,15 +6856,24 @@ body.risque-view-host[data-risque-phase="receivecard"] .risque-phase-content {
 
 /* Beat base .receivecard-compact-root { max-height: 268px; overflow: hidden } — host dual-pane needs full panel */
 body.risque-view-host[data-risque-phase="receivecard"] .receivecard-compact-root.receivecard-compact-root--simple {
-  height: min(93vh, 824px);
+  height: auto;
   max-height: min(93vh, 824px);
+  overflow: visible;
+  border: none;
+  background: transparent;
+}
+
+/* Stacked panes sized to thumbnails — gap separates hand (top) from staging (bottom) */
+body.risque-view-host[data-risque-phase="receivecard"] .receivecard-compact-root--simple .receivecard-hand-staging-split {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
   overflow: visible;
 }
 
-/* Upper hand sizes to its thumbnails; scroll lives on #receivecard-hand-strip-upper, not a squeezed flex slot */
-body.risque-view-host[data-risque-phase="receivecard"] .receivecard-hand-staging-split .receivecard-hand-stack {
-  flex: 0 1 auto;
-  min-height: 0;
+body.risque-view-host[data-risque-phase="receivecard"] .receivecard-hand-staging-split .receivecard-hand-stack,
+body.risque-view-host[data-risque-phase="receivecard"] .receivecard-hand-staging-split .receivecard-staging-wrap {
+  flex: 0 0 auto;
   overflow: visible;
 }
 
@@ -6825,19 +6924,19 @@ body.risque-view-host[data-risque-phase="receivecard"]
 body.risque-view-host[data-risque-phase="receivecard"]
   .receivecard-compact-root--conquest-elim
   .receivecard-hand-strip--upper {
-  max-height: min(38vh, 300px);
+  overflow: visible;
 }
 
 body.risque-view-host[data-risque-phase="receivecard"]
   .receivecard-compact-root--conquest-elim
   .receivecard-staging-grid {
-  min-height: min(164px, 19vh);
+  min-height: 0;
 }
 
 body.risque-view-host[data-risque-phase="receivecard"]
   .receivecard-compact-root--conquest-elim
   .receivecard-staging-wrap {
-  min-height: 172px;
+  min-height: 0;
   padding-top: 8px;
   padding-bottom: 10px;
 }

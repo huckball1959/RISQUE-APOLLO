@@ -225,8 +225,76 @@ let campaignInstantLastOutcomes = [];
 let campaignInstantLastStopped = null;
 /** Troops to leave on the source territory after each capture in INSTANT campaign (1–99) */
 let instantCampaignGarrison = 1;
+/** Q CAMP dev shortcut: instant campaign planning + silent finish (leave 1, transfer all rest each hop). */
+let campaignQDevMode = false;
 /** @type {{ t: number, msg: string, data?: * }[]} */
 window.risqueCampaignTroubleshootLog = window.risqueCampaignTroubleshootLog || [];
+
+/**
+ * Attack toolbar row 1 + row 2 (Q BLITZ / Q CAMP). Shared by runtime HUD and attack fallback mount.
+ * @param {{ includeReinforceInStrip?: boolean }} opts
+ */
+function buildAttackToolbarStripButtonsInnerHtml(opts) {
+  opts = opts && typeof opts === 'object' ? opts : {};
+  const reinforceBtn = opts.includeReinforceInStrip
+    ? '<button id="reinforce" class="attack-ctl-btn attack-ctl-reinforce" type="button" title="Continue to reinforcement phase">CONTINUE TO REINFORCEMENT</button>'
+    : '';
+  const blitzDropdown =
+    '<div class="attack-blitz-wrap">' +
+    '<button id="blitz" class="attack-ctl-btn attack-ctl-blitz" type="button" title="Open blitz options" aria-expanded="false" aria-haspopup="true">BLITZ ▾</button>' +
+    '<div id="blitz-dropdown" class="attack-blitz-dropdown attack-blitz-dropdown--flyout" role="menu" hidden>' +
+    '<div class="attack-menu-row attack-menu-row--tall">' +
+    '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--instant" aria-haspopup="true" aria-expanded="false" title="Instant blitz options">INSTANT</button>' +
+    '<div class="attack-menu-flyout" role="menu">' +
+    '<button type="button" class="attack-menu-flyout-item" data-blitz-mode="instant-cond" role="menuitem">Instant / COND</button>' +
+    '</div></div>' +
+    '<div class="attack-menu-row attack-menu-row--tall">' +
+    '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--pause" aria-haspopup="true" aria-expanded="false" title="Blitz Step">BLITZ STEP</button>' +
+    '<div class="attack-menu-flyout" role="menu">' +
+    '<button type="button" class="attack-menu-flyout-item" data-blitz-mode="pause-cond" role="menuitem">Blitz Step Con</button>' +
+    '</div></div></div>' +
+    '<button id="pausable-blitz" class="attack-ctl-btn attack-ctl-pausable" type="button" title="Legacy pause control" style="display:none" hidden aria-hidden="true"><span id="pausable-blitz-text">PBLZ</span></button>' +
+    '</div>';
+  const campaignDropdown =
+    '<div class="attack-campaign-wrap">' +
+    '<button id="campaign" class="attack-ctl-btn attack-ctl-campaign" type="button" title="Open campaign options" aria-expanded="false" aria-haspopup="true">CAMPAIGN ▾</button>' +
+    '<div id="campaign-dropdown" class="attack-campaign-dropdown attack-campaign-dropdown--flyout" role="menu" hidden>' +
+    '<div class="attack-menu-row attack-menu-row--tall">' +
+    '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--instant" aria-haspopup="true" aria-expanded="false" title="Campaign instant options">INSTANT</button>' +
+    '<div class="attack-menu-flyout attack-menu-flyout--campaign" role="menu">' +
+    '<button type="button" class="attack-menu-flyout-item" data-campaign-mode="instant-cond" role="menuitem">Instant / COND</button>' +
+    '</div></div>' +
+    '<div class="attack-menu-row attack-menu-row--tall">' +
+    '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--pause" aria-haspopup="true" aria-expanded="false" title="Campaign Step">CAMPAIGN STEP</button>' +
+    '<div class="attack-menu-flyout attack-menu-flyout--campaign" role="menu">' +
+    '<button type="button" class="attack-menu-flyout-item" data-campaign-mode="pause-cond" role="menuitem">Campaign Step with conditions</button>' +
+    '</div></div></div>' +
+    '</div>';
+  return (
+    '<div class="attack-toolbar-rows">' +
+    '<div class="attack-toolbar-row--6">' +
+    '<button id="roll" class="attack-ctl-btn attack-ctl-roll" type="button" title="Single roll">ROLL</button>' +
+    blitzDropdown +
+    campaignDropdown +
+    '<button id="new-attack" class="attack-ctl-btn attack-ctl-new" type="button" title="Cancel all attacks">CLEAR</button>' +
+    reinforceBtn +
+    '<div id="aerial-attack-group">' +
+    '<button id="aerial-attack" class="attack-ctl-btn attack-ctl-aerial" type="button" title="First aerial bridge (wildcard)">AERIAL</button>' +
+    '<button id="aerial-attack-2" class="attack-ctl-btn attack-ctl-aerial" type="button" title="Second aerial bridge (wildcard)">AERIAL</button>' +
+    '</div>' +
+    '</div>' +
+    '<div class="attack-toolbar-row--6 attack-toolbar-row--qdev">' +
+    '<button id="q-blitz" class="attack-ctl-btn attack-ctl-qdev" type="button" title="Dev: instant blitz, then move all troops into capture (leave 1 on source)">Q BLITZ</button>' +
+    '<button id="q-camp" class="attack-ctl-btn attack-ctl-qdev" type="button" title="Dev: plan campaign on map, Q CAMP again to run (leave 1, move all rest)">Q CAMP</button>' +
+    '<span class="attack-toolbar-slot-spacer" aria-hidden="true"></span>' +
+    '<span class="attack-toolbar-slot-spacer" aria-hidden="true"></span>' +
+    '<span class="attack-toolbar-slot-spacer" aria-hidden="true"></span>' +
+    '<span class="attack-toolbar-slot-spacer" aria-hidden="true"></span>' +
+    '</div>' +
+    '</div>'
+  );
+}
+window.buildAttackToolbarStripButtonsInnerHtml = buildAttackToolbarStripButtonsInnerHtml;
 
 const elements = {};
 
@@ -246,6 +314,8 @@ function cacheElements() {
   elements.campaignDropdown = document.getElementById('campaign-dropdown');
   elements.campaignWrap = document.querySelector('.attack-campaign-wrap');
   elements.newAttack = document.getElementById('new-attack');
+  elements.qBlitz = document.getElementById('q-blitz');
+  elements.qCamp = document.getElementById('q-camp');
   elements.reinforce = document.getElementById('reinforce');
   elements.aerialAttack = document.getElementById('aerial-attack');
   elements.aerialAttack2 = document.getElementById('aerial-attack-2');
@@ -1285,6 +1355,21 @@ function syncAttackPhaseActionLocks() {
   if (rollEl) rollEl.disabled = !!pending || !hasPair;
   if (blitzEl) blitzEl.disabled = !!pending || !hasPair;
   if (campaignEl) campaignEl.disabled = !!pending;
+  const qBlitzEl = document.getElementById('q-blitz');
+  const qCampEl = document.getElementById('q-camp');
+  const qCampPlanning =
+    campaignQDevMode &&
+    campaignType === 'instant' &&
+    (campaignMode === 'instant_launch' || campaignMode === 'instant_extend');
+  if (qBlitzEl) qBlitzEl.disabled = !!pending || !hasPair || !!qCampPlanning;
+  if (qCampEl) {
+    qCampEl.disabled = !!pending;
+    if (qCampPlanning) {
+      qCampEl.textContent = campaignPath.length >= 2 ? 'Q CAMP ▶' : 'Q CAMP';
+    } else {
+      qCampEl.textContent = 'Q CAMP';
+    }
+  }
   const uses =
     window.gameUtils && typeof window.gameUtils.getAerialAttackUsesRemaining === 'function'
       ? window.gameUtils.getAerialAttackUsesRemaining(gs)
@@ -2130,14 +2215,17 @@ function applyBattleRoundAfterRoll(snap, opts) {
         typeof hopIdx === 'number' &&
         pathLen >= 2 &&
         hopIdx === pathLen - 2;
-      const transferRes = autoCompleteTroopTransferLeaveBehind(
-        opts.campaignLeaveBehind != null ? opts.campaignLeaveBehind : campaignPreferredGarrison,
-        {
-          campaignAutoTransfer: true,
-          isLastCampaignHop,
-          disableTransferPulse: campaignType === 'instant'
-        }
-      );
+      const leaveN =
+        campaignQDevMode || opts.qDevTransferAllButOne
+          ? 1
+          : opts.campaignLeaveBehind != null
+            ? opts.campaignLeaveBehind
+            : campaignPreferredGarrison;
+      const transferRes = autoCompleteTroopTransferLeaveBehind(leaveN, {
+        campaignAutoTransfer: true,
+        isLastCampaignHop,
+        disableTransferPulse: campaignType === 'instant' || campaignQDevMode
+      });
       isAcquiring = false;
       saveGameState();
       if (typeof window.risqueMirrorPushGameState === 'function') {
@@ -2346,6 +2434,171 @@ function rollDice() {
   }, 500);
 
   return { attackerLosses: snap.attackerLosses, defenderLosses: snap.defenderLosses };
+}
+
+/** Finish pending transfer after capture (additional troops beyond mandatory min). */
+function completeTroopTransferFromPending(additional) {
+  const player = window.gameState.players.find(p => p.name === window.gameState.currentPlayer);
+  if (!player || !window.gameState.attackingTerritory || !window.gameState.acquiredTerritory) return false;
+  const attacking = player.territories.find(t => t.name === window.gameState.attackingTerritory.name);
+  const acquired = player.territories.find(t => t.name === window.gameState.acquiredTerritory.name);
+  if (!attacking || !acquired) return false;
+  const minT = window.gameState.minTroopsToTransfer;
+  const add = Math.max(0, Math.floor(Number(additional)) || 0);
+  const fromPulse = minT;
+  const toPulse = minT + add;
+  attacking.troops = attackerInitialTroops - minT - add;
+  acquired.troops = toPulse;
+  const totalToDest = toPulse;
+  if (risqueTransferPulseEnabledForCurrentMode({})) {
+    risqueStartPostTransferDestinationPulse(acquired.name, fromPulse, toPulse);
+  } else if (window.gameState && window.gameState.risqueTransferPulse) {
+    delete window.gameState.risqueTransferPulse;
+  }
+  transferCompleted = true;
+  window.gameState.attackPhase = 'attack';
+  window.gameState.attackingTerritory = null;
+  window.gameState.acquiredTerritory = null;
+  window.gameState.minTroopsToTransfer = 0;
+  window.gameState.risqueInstantBlitzTransferUi = false;
+  try {
+    delete window.gameState.risquePublicTransferMirrorSeal;
+  } catch (eRmSeal) {
+    /* ignore */
+  }
+  saveGameState();
+  prependCombatLog(
+    `${player.name} transfers ${totalToDest} troops to ${prettyTerritoryName(acquired.name)}.`,
+    'battle'
+  );
+  const deferredElimSnapshot =
+    risqueDeferredEliminationConquerPrompt || window.gameState.risqueDeferConquerElimination || null;
+  dismissPrompt();
+  cancelAttack();
+  window.gameState.risquePublicAttackTransferSummary = `${player.name} transfers ${totalToDest} troops from ${prettyTerritoryName(
+    attacking.name
+  )} to ${prettyTerritoryName(acquired.name)}.`;
+  if (typeof window.risqueMirrorPushGameState === 'function') {
+    window.risqueMirrorPushGameState();
+  }
+  saveGameState();
+  if (typeof window.risqueReplayRecordBattle === 'function') {
+    try {
+      window.risqueReplayRecordBattle(window.gameState);
+    } catch (eRep) {
+      /* ignore */
+    }
+  }
+  if (deferredElimSnapshot) {
+    risqueDeferredEliminationConquerPrompt = null;
+    delete window.gameState.risqueDeferConquerElimination;
+    const atkP = window.gameState.players.find(p => p.name === deferredElimSnapshot.attackerName);
+    let defP = window.gameState.players.find(p => p.name === deferredElimSnapshot.defenderName);
+    if (!defP && deferredElimSnapshot.defenderName) {
+      defP = {
+        name: String(deferredElimSnapshot.defenderName),
+        territories: [],
+        cards: []
+      };
+    }
+    if (atkP && defP) {
+      scheduleAttackEliminatedProceedToConquerPrompt(atkP, defP);
+    }
+  }
+  return true;
+}
+
+/** Q BLITZ / Q CAMP: move every troop possible to captured territory (leave 1 on source). */
+function qDevAdditionalTroopsAllButOneOnSource() {
+  const player = window.gameState.players.find(p => p.name === window.gameState.currentPlayer);
+  if (!player || !window.gameState.attackingTerritory) return 0;
+  const attacking = player.territories.find(t => t.name === window.gameState.attackingTerritory.name);
+  if (!attacking) return 0;
+  const minT = window.gameState.minTroopsToTransfer;
+  const sourceTroopsSnapshot = Math.max(0, (attackerInitialTroops || attacking.troops + minT) - minT);
+  return Math.max(0, sourceTroopsSnapshot - 1);
+}
+
+async function executeQBlitzDev() {
+  if (!attacker || !defender) {
+    prependCombatLog('Q Blitz: select your territory, then a target to attack.', 'system');
+    return;
+  }
+  if (window.gameState && String(window.gameState.attackPhase || '') === 'pending_transfer') {
+    return;
+  }
+  closeBlitzDropdown();
+  closeCampaignDropdown();
+  dismissPrompt();
+  if (window.gameState) {
+    window.gameState.risqueQDevBlitzAutoTransfer = true;
+  }
+  try {
+    await blitz();
+  } finally {
+    if (window.gameState) {
+      delete window.gameState.risqueQDevBlitzAutoTransfer;
+    }
+  }
+}
+
+function startQDevCampaignPlanning() {
+  campaignQDevMode = true;
+  startInstantCampaignPlanning();
+  prependCombatLog(
+    'Q Camp: click your start territory, add targets on the map, then Q CAMP again to run (leave 1, move all rest).',
+    'system'
+  );
+}
+
+function finishQDevCampaignAfterRun() {
+  campaignQDevMode = false;
+  clearAttackCampaignPlanningAfterRun();
+  dismissPrompt();
+  if (window.gameState) {
+    window.gameState.risqueAttackOutcomePrimary = '';
+    window.gameState.risqueAttackOutcomeReport = '';
+    window.gameState.risqueAttackOutcomeAcquisition = '';
+    window.gameState.risquePublicAttackTransferSummary = '';
+  }
+  showPrompt('Select territory to attack from.', [{ label: 'Cancel', onClick: cancelAttack }]);
+  syncAttackPhaseActionLocks();
+  if (window.gameUtils && window.gameState) {
+    window.gameUtils.renderTerritories(null, window.gameState);
+    window.gameUtils.renderStats(window.gameState);
+  }
+}
+
+function onQCampDevClick() {
+  closeBlitzDropdown();
+  closeCampaignDropdown();
+  if (
+    campaignQDevMode &&
+    campaignType === 'instant' &&
+    (campaignMode === 'instant_launch' || campaignMode === 'instant_extend')
+  ) {
+    if (!campaignPath || campaignPath.length < 2) {
+      prependCombatLog('Q Camp: path needs launch + at least one enemy territory.', 'system');
+      return;
+    }
+    instantCampaignGarrison = 1;
+    campaignPreferredGarrison = 1;
+    performInstantCommitFromKeys();
+    void runInstantCampaignExecution().catch(function (e) {
+      try {
+        console.error('[Attack] Q Camp run failed', e);
+      } catch (e2) {
+        /* ignore */
+      }
+    });
+    return;
+  }
+  if (campaignQDevMode) {
+    campaignQDevMode = false;
+    resetInstantCampaignPlanning();
+    return;
+  }
+  startQDevCampaignPlanning();
 }
 
 async function blitz() {
@@ -2892,6 +3145,15 @@ function initTroopTransfer() {
   /* Must not use live attacking.troops in shortcuts — input preview mutates it. Use opening snapshot only. */
   const sourceTroopsSnapshot = Math.max(0, attackerInitialTroops - minTroopsToTransfer);
 
+  if (window.gameState && window.gameState.risqueQDevBlitzAutoTransfer) {
+    window.gameState.risqueQDevBlitzAutoTransfer = false;
+    window.gameState.risqueInstantBlitzTransferUi = false;
+    teardownAttackTroopTransferWheel();
+    completeTroopTransferFromPending(qDevAdditionalTroopsAllButOneOnSource());
+    syncAttackPhaseActionLocks();
+    return;
+  }
+
   try {
     window.gameState.risquePublicTransferMirrorSeal = {
       sourceLabel: attacking.name,
@@ -2940,76 +3202,8 @@ function initTroopTransfer() {
         risqueStopConfirmSlotFlash();
         const input = document.getElementById('troops-input');
         const additional = parseInt(input ? input.value : '0', 10) || 0;
-        const fromPulse = minTroopsToTransfer;
-        const toPulse = minTroopsToTransfer + additional;
-        attacking.troops = attackerInitialTroops - minTroopsToTransfer - additional;
-        acquired.troops = toPulse;
-        const totalToDest = toPulse;
-        if (risqueTransferPulseEnabledForCurrentMode({})) {
-          risqueStartPostTransferDestinationPulse(acquired.name, fromPulse, toPulse);
-        } else if (window.gameState && window.gameState.risqueTransferPulse) {
-          delete window.gameState.risqueTransferPulse;
-        }
-        transferCompleted = true;
-        window.gameState.attackPhase = 'attack';
-        window.gameState.attackingTerritory = null;
-        window.gameState.acquiredTerritory = null;
-        window.gameState.minTroopsToTransfer = 0;
-        try {
-          delete window.gameState.risquePublicTransferMirrorSeal;
-        } catch (eRmSeal) {}
-        saveGameState();
-        prependCombatLog(
-          `${player.name} transfers ${totalToDest} troops to ${prettyTerritoryName(acquired.name)}.`,
-          'battle'
-        );
-        const deferredElimSnapshot =
-          risqueDeferredEliminationConquerPrompt ||
-          window.gameState.risqueDeferConquerElimination ||
-          null;
-        dismissPrompt();
-        cancelAttack();
-        window.gameState.risquePublicAttackTransferSummary = `${player.name} transfers ${totalToDest} troops from ${prettyTerritoryName(
-          attacking.name
-        )} to ${prettyTerritoryName(acquired.name)}.`;
-        if (typeof window.risqueMirrorPushGameState === 'function') {
-          window.risqueMirrorPushGameState();
-        }
-        saveGameState();
-        if (typeof window.risqueReplayRecordBattle === 'function') {
-          try {
-            window.risqueReplayRecordBattle(window.gameState);
-          } catch (eRep) {
-            /* ignore */
-          }
-        }
-        if (deferredElimSnapshot) {
-          risqueDeferredEliminationConquerPrompt = null;
-          delete window.gameState.risqueDeferConquerElimination;
-          const atkP = window.gameState.players.find(p => p.name === deferredElimSnapshot.attackerName);
-          let defP = window.gameState.players.find(p => p.name === deferredElimSnapshot.defenderName);
-          if (!defP && deferredElimSnapshot.defenderName) {
-            defP = {
-              name: String(deferredElimSnapshot.defenderName),
-              territories: [],
-              cards: []
-            };
-            logToStorage(
-              'Deferred elimination: defender missing from players; using name-only stub for conquer prompt',
-              { defenderName: deferredElimSnapshot.defenderName }
-            );
-          }
-          if (atkP && defP) {
-            scheduleAttackEliminatedProceedToConquerPrompt(atkP, defP);
-          } else {
-            logToStorage('Deferred elimination: could not schedule conquer prompt (missing attacker or defender)', {
-              attackerName: deferredElimSnapshot.attackerName,
-              defenderName: deferredElimSnapshot.defenderName,
-              hasAtk: !!atkP,
-              hasDef: !!defP
-            });
-          }
-        }
+        teardownAttackTroopTransferWheel();
+        completeTroopTransferFromPending(additional);
       }
     }
   ];
@@ -3437,6 +3631,7 @@ function clearAttackCampaignPlanningAfterRun() {
   campaignInstantLastStopped = null;
   pauseCampaignMirrorStopLabel = null;
   isPauseCampaignRunning = false;
+  campaignQDevMode = false;
   clearInstantCampaignWarpath();
   const cv = document.getElementById('control-voice');
   if (cv) cv.classList.remove('ucp-control-voice--campaign-instant');
@@ -4289,6 +4484,18 @@ async function runInstantCampaignExecution() {
     window.gameState.risquePublicAttackSelectionLine = '';
   }
   clearPublicCampaignEndMirror();
+  if (campaignQDevMode) {
+    finishQDevCampaignAfterRun();
+    campaignTrace('instant:run_done', { outcomes: outcomes.length, stopped: stopped || null, qDev: true });
+    if (!window.risqueDisplayIsPublic && typeof window.risqueReplayEnsureLatestBoardFrame === 'function') {
+      try {
+        window.risqueReplayEnsureLatestBoardFrame(window.gameState);
+      } catch (eEnsureCamp) {
+        /* ignore */
+      }
+    }
+    return;
+  }
   const condCampaignHalt = !!(condInstant && stopped && /CONDITIONAL STOP/.test(String(stopped)));
   if (condCampaignHalt) {
     showHostCampaignHaltedConditionMetVoice(instantCondCampaignStopTerritory);
@@ -4917,6 +5124,7 @@ function handleInstantCampaignTerritoryClick(label) {
     prependCombatLog(`Campaign: launch ${prettyTerritoryName(label)} (${snap.troops} troops).`, 'system');
     paintInstantCampaignHud('', instantCampaignPlanningMirrorOpts() || undefined);
     renderAfterCampaignWarpathSync();
+    if (campaignQDevMode) syncAttackPhaseActionLocks();
     return true;
   }
 
@@ -4933,6 +5141,7 @@ function handleInstantCampaignTerritoryClick(label) {
       }
       paintInstantCampaignHud('', instantCampaignPlanningMirrorOpts() || undefined);
       renderAfterCampaignWarpathSync();
+      if (campaignQDevMode) syncAttackPhaseActionLocks();
       return true;
     }
     const adj = window.gameUtils.getAdjacencies(last);
@@ -4958,6 +5167,7 @@ function handleInstantCampaignTerritoryClick(label) {
     prependCombatLog(`Campaign: + ${prettyTerritoryName(label)} → ${formatCampaignPath()}`, 'system');
     paintInstantCampaignHud('', instantCampaignPlanningMirrorOpts() || undefined);
     renderAfterCampaignWarpathSync();
+    if (campaignQDevMode) syncAttackPhaseActionLocks();
     return true;
   }
 
@@ -4989,6 +5199,7 @@ function resetCampaignPlanning() {
 function exitCampaignMode() {
   stopPauseCampaignExecutionInternal();
   clearPublicCampaignEndMirror();
+  campaignQDevMode = false;
   campaignMode = null;
   campaignType = null;
   campaignPath = [];
@@ -5874,6 +6085,18 @@ function initAttackPhase(mountEpoch) {
     elements.aerialAttackGroup.style.display = 'block';
 
     elements.roll.addEventListener('click', () => rollDice(), { signal: acSig });
+    if (elements.qBlitz) {
+      elements.qBlitz.addEventListener(
+        'click',
+        () => {
+          void executeQBlitzDev();
+        },
+        { signal: acSig }
+      );
+    }
+    if (elements.qCamp) {
+      elements.qCamp.addEventListener('click', onQCampDevClick, { signal: acSig });
+    }
     elements.blitz.addEventListener(
       'click',
       (e) => {
@@ -6205,42 +6428,7 @@ window.initAttackPhase = initAttackPhase;
           '<div id="attack-toolbar-strip" class="ucp-slot-strip attack-toolbar-strip" aria-label="Attack controls">' +
             '<div class="ucp-slot-strip-main">' +
             '<div class="ucp-slot-strip-buttons">' +
-            '<button id="roll" class="attack-ctl-btn attack-ctl-roll" type="button" title="Single roll">ROLL</button>' +
-            '<div class="attack-blitz-wrap">' +
-            '<button id="blitz" class="attack-ctl-btn attack-ctl-blitz" type="button" title="Open blitz options" aria-expanded="false" aria-haspopup="true">BLITZ ▾</button>' +
-            '<div id="blitz-dropdown" class="attack-blitz-dropdown attack-blitz-dropdown--flyout" role="menu" hidden>' +
-            '<div class="attack-menu-row attack-menu-row--tall">' +
-            '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--instant" aria-haspopup="true" aria-expanded="false" title="Instant blitz options">INSTANT</button>' +
-            '<div class="attack-menu-flyout" role="menu">' +
-            '<button type="button" class="attack-menu-flyout-item" data-blitz-mode="instant-cond" role="menuitem">Instant / COND</button>' +
-            '</div></div>' +
-            '<div class="attack-menu-row attack-menu-row--tall">' +
-            '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--pause" aria-haspopup="true" aria-expanded="false" title="Blitz Step">BLITZ STEP</button>' +
-            '<div class="attack-menu-flyout" role="menu">' +
-            '<button type="button" class="attack-menu-flyout-item" data-blitz-mode="pause-cond" role="menuitem">Blitz Step Con</button>' +
-            '</div></div></div>' +
-            '<button id="pausable-blitz" class="attack-ctl-btn attack-ctl-pausable" type="button" title="Legacy pause control" style="display:none" hidden aria-hidden="true"><span id="pausable-blitz-text">PBLZ</span></button>' +
-            '</div>' +
-            '<div class="attack-campaign-wrap">' +
-            '<button id="campaign" class="attack-ctl-btn attack-ctl-campaign" type="button" title="Open campaign options" aria-expanded="false" aria-haspopup="true">CAMPAIGN ▾</button>' +
-            '<div id="campaign-dropdown" class="attack-campaign-dropdown attack-campaign-dropdown--flyout" role="menu" hidden>' +
-            '<div class="attack-menu-row attack-menu-row--tall">' +
-            '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--instant" aria-haspopup="true" aria-expanded="false" title="Campaign instant options">INSTANT</button>' +
-            '<div class="attack-menu-flyout attack-menu-flyout--campaign" role="menu">' +
-            '<button type="button" class="attack-menu-flyout-item" data-campaign-mode="instant-cond" role="menuitem">Instant / COND</button>' +
-            '</div></div>' +
-            '<div class="attack-menu-row attack-menu-row--tall">' +
-            '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--pause" aria-haspopup="true" aria-expanded="false" title="Campaign Step">CAMPAIGN STEP</button>' +
-            '<div class="attack-menu-flyout attack-menu-flyout--campaign" role="menu">' +
-            '<button type="button" class="attack-menu-flyout-item" data-campaign-mode="pause-cond" role="menuitem">Campaign Step with conditions</button>' +
-            '</div></div></div>' +
-            '</div>' +
-            '<button id="new-attack" class="attack-ctl-btn attack-ctl-new" type="button" title="Cancel all attacks">CLEAR</button>' +
-            '<button id="reinforce" class="attack-ctl-btn attack-ctl-reinforce" type="button" title="Continue to reinforcement phase">CONTINUE TO REINFORCEMENT</button>' +
-            '<div id="aerial-attack-group">' +
-              '<button id="aerial-attack" class="attack-ctl-btn attack-ctl-aerial" type="button" title="First aerial bridge (wildcard)">AERIAL</button>' +
-              '<button id="aerial-attack-2" class="attack-ctl-btn attack-ctl-aerial" type="button" title="Second aerial bridge (wildcard)">AERIAL</button>' +
-            '</div>' +
+            buildAttackToolbarStripButtonsInnerHtml({ includeReinforceInStrip: true }) +
             '</div>' +
             '<div class="attack-step-ctl-wrap" id="attack-step-ctl-wrap" hidden aria-label="Blitz Step and Campaign Step">' +
             '<button type="button" id="attack-step-pause-btn" class="attack-ctl-btn attack-ctl-step-pause" title="Pause or resume">PAUSE</button>' +

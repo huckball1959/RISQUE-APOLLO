@@ -63,41 +63,9 @@
         '<div id="attack-toolbar-strip" class="ucp-slot-strip attack-toolbar-strip" aria-label="Attack controls">' +
           '<div class="ucp-slot-strip-main">' +
           '<div class="ucp-slot-strip-buttons">' +
-          '<button id="roll" class="attack-ctl-btn attack-ctl-roll" type="button" title="Single roll">ROLL</button>' +
-          '<div class="attack-blitz-wrap">' +
-          '<button id="blitz" class="attack-ctl-btn attack-ctl-blitz" type="button" title="Open blitz options" aria-expanded="false" aria-haspopup="true">BLITZ ▾</button>' +
-          '<div id="blitz-dropdown" class="attack-blitz-dropdown attack-blitz-dropdown--flyout" role="menu" hidden>' +
-          '<div class="attack-menu-row attack-menu-row--tall">' +
-          '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--instant" aria-haspopup="true" aria-expanded="false" title="Instant blitz options">INSTANT</button>' +
-          '<div class="attack-menu-flyout" role="menu">' +
-          '<button type="button" class="attack-menu-flyout-item" data-blitz-mode="instant-cond" role="menuitem">Instant / COND</button>' +
-          "</div></div>" +
-          '<div class="attack-menu-row attack-menu-row--tall">' +
-          '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--pause" aria-haspopup="true" aria-expanded="false" title="Blitz Step">BLITZ STEP</button>' +
-          '<div class="attack-menu-flyout" role="menu">' +
-          '<button type="button" class="attack-menu-flyout-item" data-blitz-mode="pause-cond" role="menuitem">Blitz Step Con</button>' +
-          "</div></div></div>" +
-          '<button id="pausable-blitz" class="attack-ctl-btn attack-ctl-pausable" type="button" title="Legacy pause control" style="display:none" hidden aria-hidden="true"><span id="pausable-blitz-text">PBLZ</span></button>' +
-          "</div>" +
-          '<div class="attack-campaign-wrap">' +
-          '<button id="campaign" class="attack-ctl-btn attack-ctl-campaign" type="button" title="Open campaign options" aria-expanded="false" aria-haspopup="true">CAMPAIGN ▾</button>' +
-          '<div id="campaign-dropdown" class="attack-campaign-dropdown attack-campaign-dropdown--flyout" role="menu" hidden>' +
-          '<div class="attack-menu-row attack-menu-row--tall">' +
-          '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--instant" aria-haspopup="true" aria-expanded="false" title="Campaign instant options">INSTANT</button>' +
-          '<div class="attack-menu-flyout attack-menu-flyout--campaign" role="menu">' +
-          '<button type="button" class="attack-menu-flyout-item" data-campaign-mode="instant-cond" role="menuitem">Instant / COND</button>' +
-          "</div></div>" +
-          '<div class="attack-menu-row attack-menu-row--tall">' +
-          '<button type="button" class="attack-blitz-dropdown-item attack-menu-tile attack-menu-tile--pause" aria-haspopup="true" aria-expanded="false" title="Campaign Step">CAMPAIGN STEP</button>' +
-          '<div class="attack-menu-flyout attack-menu-flyout--campaign" role="menu">' +
-          '<button type="button" class="attack-menu-flyout-item" data-campaign-mode="pause-cond" role="menuitem">Campaign Step with conditions</button>' +
-          "</div></div></div>" +
-          "</div>" +
-          '<button id="new-attack" class="attack-ctl-btn attack-ctl-new" type="button" title="Cancel all attacks">CLEAR</button>' +
-          '<div id="aerial-attack-group">' +
-            '<button id="aerial-attack" class="attack-ctl-btn attack-ctl-aerial" type="button" title="First aerial bridge (wildcard)">AERIAL</button>' +
-            '<button id="aerial-attack-2" class="attack-ctl-btn attack-ctl-aerial" type="button" title="Second aerial bridge (wildcard)">AERIAL</button>' +
-          "</div>" +
+          (typeof window.buildAttackToolbarStripButtonsInnerHtml === "function"
+            ? window.buildAttackToolbarStripButtonsInnerHtml({ includeReinforceInStrip: false })
+            : "") +
           "</div>" +
           '<div class="attack-step-ctl-wrap" id="attack-step-ctl-wrap" hidden aria-label="Blitz Step and Campaign Step">' +
           '<button type="button" id="attack-step-pause-btn" class="attack-ctl-btn attack-ctl-step-pause" title="Pause or resume">PAUSE</button>' +

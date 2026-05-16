@@ -78,7 +78,11 @@
     "risqueReplayBattleFlashLabels",
     "risquePublicReplayRound",
     "risquePublicReplayEliminationSplash",
-    "phaseReplayIndex"
+    "phaseReplayIndex",
+    /* RAM-only battle-stills buffer; never persist to localStorage / sidecar clones */
+    "risqueCheapReplayStills",
+    "risqueCheapReplayBattleSeq",
+    "risqueCheapReplayFrameSeq"
   ];
 
   function tapeVersionOk(v) {
@@ -118,6 +122,24 @@
     if (!gs || typeof gs !== "object") return gs;
     var out = window.risqueCloneGameStateOmitReplayKeys(gs);
     return out != null ? out : gs;
+  };
+
+  /** Omit RAM-only cheap-replay buffers from localStorage (always; keys are huge during long matches). */
+  window.risqueJsonStringifyGameStateForStorage = function (obj) {
+    if (!obj || typeof obj !== "object") return "{}";
+    try {
+      return JSON.stringify(obj, function (key, val) {
+        if (key === "risqueCheapReplayStills" || key === "risqueCheapReplayBattleSeq" || key === "risqueCheapReplayFrameSeq")
+          return undefined;
+        return val;
+      });
+    } catch (e) {
+      try {
+        return JSON.stringify(obj);
+      } catch (e2) {
+        return "{}";
+      }
+    }
   };
 
   /** Coalesce frequent disk sidecar writes during rapid combat (every battle called stringify of the full tape). */
@@ -200,7 +222,8 @@
         return false;
       }
       if (pSk && !gSk) {
-        return false;
+        gs.risqueReplayTapeSessionKey = parsed.sessionKey;
+        gSk = pSk;
       }
       if (!parsed.risqueReplayByRound || typeof parsed.risqueReplayByRound !== "object") return false;
       var pKeys = Object.keys(parsed.risqueReplayByRound);
@@ -229,6 +252,35 @@
 
   window.risqueReplayPersistTapeSidecar = replayTapeSidecarPersist;
   window.risqueReplayRestoreFromSidecar = replayTapeSidecarRestore;
+
+  /** Cancel debounced sidecar write and persist immediately (page hide / hard refresh). */
+  window.risqueReplayPersistTapeSidecarImmediate = function (gs) {
+    if (__replaySidecarTimer != null) {
+      clearTimeout(__replaySidecarTimer);
+      __replaySidecarTimer = null;
+    }
+    __replaySidecarGsRef = null;
+    if (!gs || typeof gs !== "object") return false;
+    return replayTapeSidecarPersist(gs);
+  };
+
+  window.risqueReplayTapeEventCount = function (gs) {
+    if (!gs || typeof gs !== "object") return 0;
+    if (typeof window.risqueReplayTapeTotalEventCount === "function") {
+      return window.risqueReplayTapeTotalEventCount(gs);
+    }
+    if (gs.risqueReplayByRound && typeof gs.risqueReplayByRound === "object") {
+      var n = 0;
+      var keys = Object.keys(gs.risqueReplayByRound);
+      var i;
+      for (i = 0; i < keys.length; i++) {
+        var arr = gs.risqueReplayByRound[keys[i]];
+        if (Array.isArray(arr)) n += arr.length;
+      }
+      return n;
+    }
+    return 0;
+  };
 
   function ensureReplayByRound(gs) {
     if (!gs || typeof gs !== "object") return;
@@ -409,6 +461,8 @@
   function shouldRecord(gs) {
     if (!gs || typeof gs !== "object") return false;
     if (window.risqueDisplayIsPublic) return false;
+    /* Battle stills tier: no in-memory tape / sidecar — only rqwb-* stills flushed at game end. */
+    if (gs.risqueAutosaveTier === "battle_stills" || gs.risqueAutosaveTier === "host_ultra") return false;
     return true;
   }
 
@@ -680,6 +734,7 @@
    */
   function tryFlushGranularDealDeployReplay(gs) {
     if (!shouldRecord(gs)) return;
+    if (gs.risqueAutosaveTier === "battle_stills" || gs.risqueAutosaveTier === "host_ultra") return;
     if (gs.risqueAutosaveTier === "safe_no_replay") return;
     /* DD.json is cheap and valuable; keep this one even in low-write mode. */
     if (gs.risqueReplayDealDeployDiskWritten) return;
@@ -877,6 +932,7 @@
    */
   window.risqueReplayEnsureLatestBoardFrame = function (gs) {
     if (!gs || typeof gs !== "object") return false;
+    if (gs.risqueAutosaveTier === "battle_stills" || gs.risqueAutosaveTier === "host_ultra") return false;
     if (!shouldRecord(gs)) return false;
     ensureOpeningFrom(gs);
     var curr = snapshotBoard(gs);
@@ -991,7 +1047,8 @@
   }
 
   /** Init+deal, or per-territory deal (many steps), or deal+deploy — matches on-disk tapes that omit legacy init. */
-  function tapeHasUsableReplayOpening(evs) {
+  /** Exported for tier-3 endgame merge (game-shell). */
+  window.risqueTapeHasUsableReplayOpening = function tapeHasUsableReplayOpening(evs) {
     if (!Array.isArray(evs)) return false;
     var dealN = 0;
     var depN = 0;
@@ -1008,7 +1065,7 @@
     if (dealN >= 8) return true;
     if (dealN >= 1 && depN >= 1) return true;
     return false;
-  }
+  };
 
   function tapeHasInitOnly(evs) {
     if (!Array.isArray(evs)) return false;

@@ -8,6 +8,9 @@ let moveMade = false;
 let keyboardBuffer = '';
 let reinforceWheelHandler = null;
 
+/** Troops required on a territory to resist cardplay remove-2 (see cardplay: only if troops > 2). */
+const RISQUE_REINFORCE_PROTECT_TROOPS = 3;
+
 /** Both directions: move troops over the committed wildcard aerial link during reinforce. */
 function reinforceAerialConnects(gs, fromLabel, toLabel) {
   if (!gs || !gs.aerialAttack || typeof gs.aerialAttack !== "object") return false;
@@ -208,6 +211,7 @@ function refreshReinforceCompactHud() {
   const cm = document.getElementById('reinforce-btn-confirm-move');
   const a1 = document.getElementById('reinforce-btn-allbut1');
   const a3 = document.getElementById('reinforce-btn-allbut3');
+  const protect = document.getElementById('reinforce-btn-protect');
   const troopPrompt = !!window.__risqueReinforceTroopPromptActive;
   if (moveMade) {
     if (status) {
@@ -229,6 +233,7 @@ function refreshReinforceCompactHud() {
     if (cm) cm.disabled = true;
     if (a1) a1.disabled = true;
     if (a3) a3.disabled = true;
+    if (protect) protect.disabled = true;
     const prDone = document.getElementById('reinforce-row-pick-hint');
     if (prDone) prDone.hidden = true;
     reinforceSetPickHintPulse(false);
@@ -241,6 +246,9 @@ function refreshReinforceCompactHud() {
     if (cm) cm.disabled = false;
   } else if (r1) {
     r1.disabled = !(selectedSource && selectedDestination);
+  }
+  if (protect) {
+    protect.disabled = !(selectedSource && selectedDestination);
   }
 
   const pickRow = document.getElementById('reinforce-row-pick-hint');
@@ -306,10 +314,12 @@ function bindReinforceCompactHud() {
   const skip = document.getElementById('reinforce-btn-skip');
   const reset = document.getElementById('reinforce-btn-reset');
   const r1 = document.getElementById('reinforce-btn-r1third');
+  const protect = document.getElementById('reinforce-btn-protect');
   if (!skip || !reset || !r1) return;
   skip.onclick = () => reinforceCompactSkip();
   reset.onclick = () => resetReinforceSelection();
   r1.onclick = () => confirmReinforceMove();
+  if (protect) protect.onclick = () => confirmReinforceProtect();
   refreshReinforceCompactHud();
 }
 
@@ -620,8 +630,10 @@ function resetReinforceSelection() {
   }
   var sk = document.getElementById('reinforce-btn-skip');
   var rs = document.getElementById('reinforce-btn-reset');
+  var pr = document.getElementById('reinforce-btn-protect');
   if (sk) sk.onclick = function () { reinforceCompactSkip(); };
   if (rs) rs.onclick = function () { resetReinforceSelection(); };
+  if (pr) pr.onclick = function () { confirmReinforceProtect(); };
   if (window.gameState && window.gameState.risqueReinforcePreview) {
     delete window.gameState.risqueReinforcePreview;
   }
@@ -630,6 +642,71 @@ function resetReinforceSelection() {
     window.risquePersistHostGameState();
   }
   refreshReinforceCompactHud();
+}
+
+function confirmReinforceProtect() {
+  if (moveMade || !selectedSource || !selectedDestination) return;
+  const livePlayer = getLiveCurrentPlayer();
+  if (!livePlayer) return;
+  const liveSource = livePlayer.territories.find(t => t.name === selectedSource);
+  const liveDestination = livePlayer.territories.find(t => t.name === selectedDestination);
+  if (!liveSource || !liveDestination) return;
+
+  const destTroops = Math.floor(Number(liveDestination.troops) || 0);
+  if (destTroops >= RISQUE_REINFORCE_PROTECT_TROOPS) {
+    const alreadyMsg = '<strong>THIS TERRITORY IS ALREADY PROTECTED</strong>';
+    const alreadyRep = `${reinforcePrettyTerritory(selectedDestination)} already has ${destTroops} troops (cardplay protection is ${RISQUE_REINFORCE_PROTECT_TROOPS}).`;
+    const backToMove = () => {
+      const maxM = Math.max(0, Math.floor(Number(liveSource.troops) || 0) - 1);
+      reinforceShowPrompt(
+        `Adjust troops to move from ${selectedSource.replace(/_/g, ' ')} to ${selectedDestination.replace(/_/g, ' ')}.`,
+        reinforceMakeTroopPromptButtons(maxM),
+        reinforceTroopVoiceOptions(maxM),
+        alreadyRep
+      );
+    };
+    reinforceShowPrompt(alreadyMsg, [{ label: 'OK', onClick: backToMove }], null, alreadyRep);
+    if (typeof window.risqueReinforceHostApplyPrompt === 'function') {
+      window.risqueReinforceHostApplyPrompt([{ label: 'OK', onClick: backToMove }]);
+    }
+    refreshReinforceCompactHud();
+    return;
+  }
+
+  const needed = RISQUE_REINFORCE_PROTECT_TROOPS - destTroops;
+  const maxFromSource = Math.max(0, Math.floor(Number(liveSource.troops) || 0) - 1);
+  if (needed < 1) {
+    reinforceShowPrompt(
+      '<strong>THIS TERRITORY IS ALREADY PROTECTED</strong>',
+      [{ label: 'OK', onClick: () => {} }],
+      null,
+      ''
+    );
+    refreshReinforceCompactHud();
+    return;
+  }
+  if (needed > maxFromSource) {
+    reinforceShowPrompt(
+      `Cannot protect ${reinforcePrettyTerritory(selectedDestination)} — need ${needed} troop${needed === 1 ? '' : 's'} from ${reinforcePrettyTerritory(selectedSource)} (max movable: ${maxFromSource}, must leave 1 behind).`,
+      reinforceMakeTroopPromptButtons(maxFromSource),
+      reinforceTroopVoiceOptions(maxFromSource),
+      ''
+    );
+    refreshReinforceCompactHud();
+    return;
+  }
+
+  troopsToMove = needed;
+  sourceTerritory = liveSource;
+  destinationTerritory = liveDestination;
+  if (typeof window.risqueDismissAttackPrompt === 'function') {
+    window.risqueDismissAttackPrompt();
+  }
+  window.__risqueReinforceTroopPromptActive = false;
+  if (typeof window.risqueReinforceHostApplyPrompt === 'function') {
+    window.risqueReinforceHostApplyPrompt([]);
+  }
+  confirmReinforceMove();
 }
 
 function confirmReinforceMove() {
@@ -675,8 +752,12 @@ function confirmReinforceMove() {
     destinationNow: liveDestination.troops
   });
   if (typeof window.risqueAppendGameLog === 'function') {
+    const protectNote =
+      destTroopBefore < RISQUE_REINFORCE_PROTECT_TROOPS && liveDestination.troops >= RISQUE_REINFORCE_PROTECT_TROOPS
+        ? ` (protected to ${RISQUE_REINFORCE_PROTECT_TROOPS})`
+        : '';
     window.risqueAppendGameLog(
-      `${livePlayer.name} transfers ${troopsToMove} troops to ${reinforcePrettyTerritory(toName)}.`,
+      `${livePlayer.name} transfers ${troopsToMove} troops to ${reinforcePrettyTerritory(toName)}${protectNote}.`,
       'battle'
     );
   }
@@ -943,6 +1024,7 @@ window.initReinforcePhase = initReinforcePhase;
           "</div>" +
           '<div class="reinforce-row reinforce-row--reset-num">' +
           '<button type="button" id="reinforce-btn-reset" class="reinforce-btn-compact">RESET</button>' +
+          '<button type="button" id="reinforce-btn-protect" class="reinforce-btn-compact reinforce-btn-protect" title="Move troops from source so destination has 3 (cardplay protected)">PROTECT</button>' +
           '<div class="reinforce-troops-holder" id="reinforce-troops-holder" hidden aria-hidden="true"></div>' +
           "</div>" +
           '<div class="reinforce-row reinforce-row--confirm-only">' +

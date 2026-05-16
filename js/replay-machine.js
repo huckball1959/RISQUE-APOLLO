@@ -53,6 +53,8 @@
   var MS_ELIMINATION = 1300;
   var MS_INIT = 80;
   var MS_DEAL = 150;
+  /** rqwb phase-stills packs: fixed cadence per Wayback frame */
+  var MS_STILLS_FRAME = 1000;
   var MS_REPLAY_START_HOLD = 450;
   /** After a successful load, start playback automatically (pause with PAUSE or STOP). */
   var AUTO_START_PLAYBACK_AFTER_LOAD = false;
@@ -195,6 +197,9 @@
     }
     pack.tape.events.forEach(function (e) {
       if (!e) return;
+      if (e.playerColorsAtFrame && typeof e.playerColorsAtFrame === "object") {
+        mergeGapColors(e.playerColorsAtFrame);
+      }
       if (e.type === "init" && e.playerColors && typeof e.playerColors === "object") {
         mergeGapColors(e.playerColors);
       }
@@ -964,6 +969,10 @@
 
   function replayDelayForEvent(ev, ctx) {
     ctx = ctx || {};
+    if (ev && ev.risqueReplayFixedDelayMs != null && isFinite(Number(ev.risqueReplayFixedDelayMs))) {
+      var fixed = Math.max(200, Math.floor(Number(ev.risqueReplayFixedDelayMs)));
+      return scaledDelay(fixed);
+    }
     var relax = !!ctx.granularGlueRelax;
     var nextEv = ctx.nextEv;
     var battleMs = relax ? MS_BATTLE_GRANULAR_GLUE : MS_BATTLE;
@@ -1037,6 +1046,17 @@
             delete gs.risqueReplayBattleFlashLabels;
             window.gameUtils.renderTerritories(null, gs);
           }, 240);
+        }
+      }
+      if (ev.risqueReplayNarration && !skipFx) {
+        var narr = String(ev.risqueReplayNarration);
+        setStatus(narr);
+        if (window.risqueRuntimeHud && typeof window.risqueRuntimeHud.setControlVoiceText === "function") {
+          try {
+            window.risqueRuntimeHud.setControlVoiceText(narr, "");
+          } catch (eNv) {
+            /* ignore */
+          }
         }
       }
     } else if (ev.type === "elimination") {
@@ -1497,6 +1517,34 @@
       delete window.gameState.risqueGameWinImmediate;
       delete window.gameState.winner;
     }
+    /* game-shell keeps a parallel `state` ref; refreshVisuals() does window.gameState = state and would
+     * rewind the map after REPLAY ENDED if `state` still matched pre-Wayback host JSON. */
+    if (opts.replayEnded && window.gameState && typeof window.gameState === "object") {
+      try {
+        if (typeof window.risqueHostReplaceShellGameState === "function") {
+          window.risqueHostReplaceShellGameState(window.gameState);
+        }
+        if (typeof window.risquePersistHostGameState === "function") {
+          window.risquePersistHostGameState();
+        }
+      } catch (eShSync) {
+        /* ignore */
+      }
+    }
+    /* Inline Wayback exit restores __risqueReplayInlineBackupGameState — refresh it to the final tape frame
+     * so closing Wayback keeps the winner / last-board view instead of mount-time host JSON. */
+    if (
+      opts.replayEnded &&
+      window.__risqueInlineWaybackActive &&
+      window.gameState &&
+      typeof window.gameState === "object"
+    ) {
+      try {
+        window.__risqueReplayInlineBackupGameState = JSON.parse(JSON.stringify(window.gameState));
+      } catch (eBkReplayEnd) {
+        /* ignore */
+      }
+    }
     if (!opts.skipStatusMsg) {
       setStatus("");
     }
@@ -1747,7 +1795,12 @@
       if (typeof window.risqueReplayNormalizeTapeEventOrder === "function") {
         normEv = window.risqueReplayNormalizeTapeEventOrder(normEv);
       }
-      var stripRes = stripBackwardStampedRoundBoardEvents(normEv);
+      var stripRes;
+      if (pack && (pack.risqueReplayStillsPack === true || pack.risqueReplayLooseTimeline === true)) {
+        stripRes = { events: normEv, skipped: 0, message: "" };
+      } else {
+        stripRes = stripBackwardStampedRoundBoardEvents(normEv);
+      }
       if (typeof window.risqueReplayDebugIsOn === "function" && window.risqueReplayDebugIsOn()) {
         try {
           var evBeforeStrip = normEv.length;
@@ -1836,6 +1889,166 @@
       reader.readAsText(file);
     });
   }
+
+  function readFileAsUtf8Text(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        resolve(String(reader.result || ""));
+      };
+      reader.onerror = function () {
+        reject(new Error("read"));
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  /** Crude map snapshot from a saved gameState (for Wayback fallback when no replay tapes exist). */
+  function fallbackBoardSnapshotFromGameState(gs) {
+    var out = {};
+    if (!gs || !Array.isArray(gs.players)) return out;
+    gs.players.forEach(function (p) {
+      if (!p || !p.name) return;
+      (p.territories || []).forEach(function (t) {
+        if (!t || !t.name) return;
+        out[t.name] = { owner: String(p.name), troops: Number(t.troops) || 0 };
+      });
+    });
+    return out;
+  }
+
+  /**
+   * Build a minimal risque-replay-v1 tape from r{N}p{M}game.json checkpoints (sorted).
+   * Used when the folder has no DD/rNpM replay segments — coarse territory animation only.
+   */
+  async function risqueReplayBuildFallbackTapeFromDirCheckpoints(dirHandle) {
+    if (!dirHandle || typeof dirHandle.entries !== "function") return null;
+    var items = [];
+    async function collectFrom(dh) {
+      var iter = dh.entries();
+      for await (var step of iter) {
+        var name = step[0];
+        var h = step[1];
+        if (!h || h.kind !== "file") continue;
+        if (!/^r\d+p\d+game\.json$/i.test(String(name))) continue;
+        var file = await h.getFile();
+        var m = /^r(\d+)p(\d+)game\.json$/i.exec(String(name));
+        var rk = m ? Number(m[1]) * 1000 + Number(m[2]) : 0;
+        items.push({ rk: rk, file: file });
+      }
+    }
+    await collectFrom(dirHandle);
+    try {
+      var iterSub = dirHandle.entries();
+      for await (var st of iterSub) {
+        var nm = st[0];
+        var hd = st[1];
+        if (!hd || hd.kind !== "directory") continue;
+        var sns = String(nm);
+        if (!/^rqsess-/i.test(sns) && !/^\d{4}-\d{2}-\d{2}_\d{6}$/.test(sns)) continue;
+        var subDh = await dirHandle.getDirectoryHandle(nm);
+        await collectFrom(subDh);
+      }
+    } catch (eSubScan) {
+      /* ignore */
+    }
+    try {
+      var repDh = await dirHandle.getDirectoryHandle("REPLAY", { create: false });
+      await collectFrom(repDh);
+    } catch (eRep) {
+      try {
+        var repLo = await dirHandle.getDirectoryHandle("replay", { create: false });
+        await collectFrom(repLo);
+      } catch (eRep2) {
+        /* ignore */
+      }
+    }
+    if (!items.length) return null;
+    items.sort(function (a, b) {
+      return a.rk - b.rk;
+    });
+    var events = [];
+    var fi;
+    for (fi = 0; fi < items.length; fi++) {
+      var txt;
+      try {
+        txt = await readFileAsUtf8Text(items[fi].file);
+      } catch (eRead) {
+        continue;
+      }
+      var raw;
+      try {
+        raw = JSON.parse(txt);
+      } catch (eParse) {
+        continue;
+      }
+      if (!raw || !Array.isArray(raw.players)) continue;
+      var board = fallbackBoardSnapshotFromGameState(raw);
+      if (!Object.keys(board).length) continue;
+      var fname = items[fi].file && items[fi].file.name != null ? String(items[fi].file.name) : "";
+      var mfn = /^r(\d+)p(\d+)game\.json$/i.exec(fname);
+      var fileRound = mfn ? Math.max(1, parseInt(mfn[1], 10) || 0) : 0;
+      var turnSlot = mfn ? Math.max(1, parseInt(mfn[2], 10) || 0) : 0;
+      var liveRound = Math.max(1, Number(raw.round) || 1);
+      var stampR = fileRound > 0 ? Math.max(fileRound, liveRound) : liveRound;
+      var seg = events.length === 0 ? "deal" : "battle";
+      var cp = raw.currentPlayer != null ? String(raw.currentPlayer).trim() : "";
+      var evColors = {};
+      if (raw.risqueReplayPlayerColors && typeof raw.risqueReplayPlayerColors === "object") {
+        Object.keys(raw.risqueReplayPlayerColors).forEach(function (k) {
+          var kk = String(k).trim().toLowerCase();
+          var vv = raw.risqueReplayPlayerColors[k];
+          if (kk && vv != null && String(vv).trim() !== "") evColors[kk] = String(vv).trim().toLowerCase();
+        });
+      }
+      (raw.players || []).forEach(function (p) {
+        if (!p || !p.name || p.color == null || String(p.color).trim() === "") return;
+        evColors[String(p.name).trim().toLowerCase()] = String(p.color).trim().toLowerCase();
+      });
+      var narr =
+        "Round " +
+        stampR +
+        " — checkpoint" +
+        (turnSlot ? " (turn order slot " + turnSlot + ")" : "") +
+        (cp ? " — " + cp : "");
+      events.push({
+        type: "board",
+        segment: seg,
+        board: board,
+        round: stampR,
+        recordedForPlayer: cp,
+        playerColorsAtFrame: evColors,
+        risqueReplayNarration: narr,
+        risqueReplayFixedDelayMs: MS_STILLS_FRAME
+      });
+    }
+    if (!events.length) return null;
+    var mergedPc = {};
+    var ei;
+    for (ei = 0; ei < events.length; ei++) {
+      var evc = events[ei].playerColorsAtFrame;
+      if (!evc || typeof evc !== "object") continue;
+      Object.keys(evc).forEach(function (k) {
+        var kk = String(k).trim().toLowerCase();
+        var vv = evc[k];
+        if (kk && vv != null && String(vv).trim() !== "") mergedPc[kk] = String(vv).trim().toLowerCase();
+      });
+    }
+    return {
+      format: "risque-replay-v1",
+      savedAt: Date.now(),
+      playerColors: normalizeReplayPlayerColorsMap(mergedPc),
+      risqueReplayLooseTimeline: true,
+      tape: {
+        v: TAPE_VERSION,
+        openingRecorded: true,
+        hasDealFrames: true,
+        events: events
+      }
+    };
+  }
+
+  window.risqueReplayBuildFallbackTapeFromDirCheckpoints = risqueReplayBuildFallbackTapeFromDirCheckpoints;
 
   function onFilesSelected(fileList) {
     if (!fileList || !fileList.length) {
@@ -1954,6 +2167,184 @@
     window.__risqueReplayHudResizeListener = null;
   }
   window.risqueReplayStripBackwardStampedRoundBoards = stripBackwardStampedRoundBoardEvents;
+
+  async function risqueReplayTryOpenReplaySubdir(parentDh) {
+    if (!parentDh || typeof parentDh.getDirectoryHandle !== "function") return null;
+    try {
+      return await parentDh.getDirectoryHandle("REPLAY", { create: false });
+    } catch (eR) {
+      try {
+        return await parentDh.getDirectoryHandle("replay", { create: false });
+      } catch (eR2) {
+        return null;
+      }
+    }
+  }
+
+  async function risqueReplayDirHasRqwbManifest(dh) {
+    if (!dh) return false;
+    try {
+      await dh.getFileHandle("rqwb-stills-manifest.json", { create: false });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** Manifest may live at save root, save/REPLAY/, or (RQSESS-…)/REPLAY/ session disk layout. */
+  async function risqueReplayFindDirectoryWithRqwbManifest(rootDh) {
+    if (!rootDh) return null;
+    try {
+      if (await risqueReplayDirHasRqwbManifest(rootDh)) return rootDh;
+      var rr = await risqueReplayTryOpenReplaySubdir(rootDh);
+      if (rr && (await risqueReplayDirHasRqwbManifest(rr))) return rr;
+      var iter = rootDh.entries();
+      for await (var step of iter) {
+        var name = step[0];
+        var h = step[1];
+        if (!h || h.kind !== "directory") continue;
+        var s = String(name);
+        if (!/^rqsess-/i.test(s) && !/^\d{4}-\d{2}-\d{2}_\d{6}$/.test(s)) continue;
+        var sub = await rootDh.getDirectoryHandle(name);
+        var subReplay = await risqueReplayTryOpenReplaySubdir(sub);
+        if (subReplay && (await risqueReplayDirHasRqwbManifest(subReplay))) return subReplay;
+      }
+    } catch (eScan) {
+      /* ignore */
+    }
+    return null;
+  }
+
+  function mapRqwbPhaseKindToTapeSegment(kind) {
+    var k = kind != null ? String(kind).trim().toLowerCase() : "";
+    if (k === "deal") return "deal";
+    if (k === "post_setup_deploy" || k === "post_deploy" || k === "turn_deploy") return "deploy";
+    if (k === "attack_phase") return "battle";
+    if (k === "reinforce") return "reinforce";
+    return "deploy";
+  }
+
+  /**
+   * Build a playable risque-replay-v1 pack from REPLAY/rqwb-stills-manifest.json + rqwb-still-*.json
+   * (battle_stills tier). One second per frame; captions drive HUD + status during playback.
+   */
+  async function risqueReplayTryBuildPackFromRqwbStills(dirHandle) {
+    if (!dirHandle || typeof dirHandle.getDirectoryHandle !== "function") return null;
+    try {
+      var replayDh = await risqueReplayFindDirectoryWithRqwbManifest(dirHandle);
+      if (!replayDh) return null;
+      var manifestFile;
+      try {
+        var mh = await replayDh.getFileHandle("rqwb-stills-manifest.json", { create: false });
+        manifestFile = await mh.getFile();
+      } catch (eMf) {
+        return null;
+      }
+      var manifestRaw;
+      try {
+        manifestRaw = await readFileAsUtf8Text(manifestFile);
+      } catch (eMr) {
+        return null;
+      }
+      var manifest;
+      try {
+        manifest = JSON.parse(manifestRaw);
+      } catch (eMp) {
+        return null;
+      }
+      if (!manifest || manifest.format !== "risque-replay-stills-manifest-v1" || !Array.isArray(manifest.frames)) {
+        return null;
+      }
+      var baseColors = normalizeReplayPlayerColorsMap(
+        manifest.playerColors && typeof manifest.playerColors === "object" ? manifest.playerColors : {}
+      );
+      var events = [];
+      var fi;
+      for (fi = 0; fi < manifest.frames.length; fi++) {
+        var fr = manifest.frames[fi];
+        var fn = fr && fr.file ? String(fr.file) : "";
+        if (!fn || fn.indexOf("..") >= 0) continue;
+        var stillText;
+        try {
+          var sfh = await replayDh.getFileHandle(fn, { create: false });
+          var sfile = await sfh.getFile();
+          stillText = await readFileAsUtf8Text(sfile);
+        } catch (eSf) {
+          continue;
+        }
+        var body;
+        try {
+          body = JSON.parse(stillText);
+        } catch (eB) {
+          continue;
+        }
+        if (!body || body.format !== "risque-replay-still-v1" || !body.board || typeof body.board !== "object") {
+          continue;
+        }
+        var kind = body.kind != null ? String(body.kind) : fr.kind != null ? String(fr.kind) : "";
+        var seg = mapRqwbPhaseKindToTapeSegment(kind);
+        var r = Math.max(
+          1,
+          Number(body.round != null ? body.round : fr.round != null ? fr.round : 1) || 1
+        );
+        var actor =
+          body.actor != null
+            ? String(body.actor).trim()
+            : fr.actor != null
+              ? String(fr.actor).trim()
+              : "";
+        var mergedCol = Object.assign(
+          {},
+          baseColors,
+          body.playerColors && typeof body.playerColors === "object" ? body.playerColors : {}
+        );
+        var pcm = normalizeReplayPlayerColorsMap(mergedCol);
+        var cap =
+          body.caption != null && String(body.caption).trim()
+            ? String(body.caption).trim()
+            : fr.caption != null && String(fr.caption).trim()
+              ? String(fr.caption).trim()
+              : "";
+        events.push({
+          type: "board",
+          segment: seg,
+          board: body.board,
+          round: r,
+          recordedForPlayer: actor,
+          risqueReplayNarration: cap,
+          risqueReplayFixedDelayMs: MS_STILLS_FRAME,
+          playerColorsAtFrame: pcm
+        });
+      }
+      if (!events.length) return null;
+      return {
+        format: "risque-replay-v1",
+        savedAt: manifest.savedAt || Date.now(),
+        round: events[events.length - 1].round,
+        phase: "attack",
+        currentPlayer: "",
+        sessionKey: manifest.sessionKey || null,
+        playerColors: baseColors,
+        risqueReplayStillsPack: true,
+        risqueReplayLooseTimeline: true,
+        tape: {
+          v: TAPE_VERSION,
+          openingRecorded: true,
+          hasDealFrames: true,
+          events: events
+        }
+      };
+    } catch (eAll) {
+      try {
+        console.warn("[Replay] rqwb stills load failed", eAll);
+      } catch (eL) {
+        /* ignore */
+      }
+      return null;
+    }
+  }
+
+  window.risqueReplayTryBuildPackFromRqwbStills = risqueReplayTryBuildPackFromRqwbStills;
 
   /**
    * When DD + at least one rNpM.json exist, Wayback merge uses granular tapes only — drop replayN.json and
@@ -2105,8 +2496,45 @@
     meta = await risqueReplayPreferWaybackFullTapeAsync(meta);
     meta = filterReplayMetaGranularWaybackFirst(meta);
     if (!meta.length) {
+      var stillsPack = null;
+      try {
+        stillsPack = await risqueReplayTryBuildPackFromRqwbStills(dirHandle);
+      } catch (eStillsOuter) {
+        stillsPack = null;
+      }
+      if (stillsPack && stillsPack.tape && stillsPack.tape.events && stillsPack.tape.events.length) {
+        var stBlob = new Blob([JSON.stringify(stillsPack, null, 2)], { type: "application/json" });
+        var stFile = new File([stBlob], "rqwb-stills-playback.json", {
+          type: "application/json",
+          lastModified: Date.now()
+        });
+        onFilesSelected([stFile]);
+        setStatus("Phase replay (1s per frame): rqwb stills from REPLAY folder.");
+        updateReplayTapeCountLine(1);
+        if (!opts.skipStatus) {
+          /* keep status */
+        }
+        return;
+      }
+      var fbPack = await risqueReplayBuildFallbackTapeFromDirCheckpoints(dirHandle);
+      if (fbPack && fbPack.tape && fbPack.tape.events && fbPack.tape.events.length) {
+        var fbBlob = new Blob([JSON.stringify(fbPack, null, 2)], { type: "application/json" });
+        var fbFile = new File([fbBlob], "wayback-fallback-checkpoints.json", {
+          type: "application/json",
+          lastModified: Date.now()
+        });
+        onFilesSelected([fbFile]);
+        setStatus(
+          "Fallback replay: built a coarse animation from rNpMgame-style checkpoints (no DD/rNpM tapes in this folder)."
+        );
+        updateReplayTapeCountLine(1);
+        if (!opts.skipStatus) {
+          /* keep status message visible */
+        }
+        return;
+      }
       setStatus(
-        "No replay tapes in this folder — Wayback needs DD.json and rNpM.json (or *-replay.json). Files like r2p3game.json are resume checkpoints only, not animated tapes."
+        "No replay found here. Expected one of: DD.json + rNpM tapes, REPLAY/rqwb-stills-manifest.json (battle_stills tier), or turn checkpoints r{N}p{M}game.json in this folder or an RQSESS-* session subfolder."
       );
       updateReplayTapeCountLine(null);
       return;
@@ -2549,10 +2977,15 @@
             }
           })
           .then(function () {
-            if (!waybackBootstrappedFromGame) {
-              risqueReplayBootStoredFolderFromIdb();
-              risqueReplayScheduleLaunchFolderRefresh();
+            if (waybackBootstrappedFromGame) return;
+            var lp = window.__risqueReplayLoadedPack;
+            if (lp && replayPackLooksRichForBootstrap(lp)) {
+              /* Avoid a second folder rescan (IDB boot + 50ms timer) replacing a good first merge — that
+               * re-ran prepareLoadedPack, cleared REPLAY ENDED, and rewound the map after a full watch. */
+              return;
             }
+            risqueReplayBootStoredFolderFromIdb();
+            risqueReplayScheduleLaunchFolderRefresh();
           });
       }
     } else {

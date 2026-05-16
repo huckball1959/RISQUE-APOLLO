@@ -1,0 +1,36 @@
+RISQUE mocks — rounds 5 / 10 / 15 (last of 4 players = MOCK_D)
+==============================================================
+
+Use these to test periodic browser restart + disk resume without playing from turn 1.
+If launcher uses periodicBrowserRestartEveryRounds = 5, round-boundary restarts line up at 5, 10, 15.
+
+Files (under scripts/):
+  risque-mock-round5-player4.json   + risque-mock-round5-loader.html
+  risque-mock-round10-player4.json  + risque-mock-round10-loader.html
+  risque-mock-round15-player4.json  + risque-mock-round15-loader.html
+
+Suggested order
+-----------------
+1) RISQUE.bat → local host (same save folder you use for real tests).
+
+2) Open scripts/risque-mock-round5-loader.html (or Host Load game → pick …round5…json).
+   Play last player (MOCK_D) through receive-card; let periodic restart + resume run.
+
+3) Open scripts/risque-mock-round10-loader.html (or Load …round10…json).
+   Confirm UI/state looks like round 10 / MOCK_D, not confused with save-folder artifacts.
+   Play last player; let restart run.
+
+4) Open scripts/risque-mock-round15-loader.html (or Load …round15…json).
+   Same checks; play last player; let restart run.
+
+Regenerate random layouts (optional)
+------------------------------------
+From repo root:
+
+  node scripts/build-mock-round-last-player.mjs 5
+  node scripts/build-mock-round-last-player.mjs 10
+  node scripts/build-mock-round-last-player.mjs 15
+
+Legacy alias (writes round 5 only):
+
+  node scripts/build-mock-round5-player4.mjs

@@ -1,0 +1,393 @@
+{
+  "phase": "cardplay",
+  "setupComplete": true,
+  "risqueHostHudStatsColumnRetired": false,
+  "selectionPhase": "cardPlay",
+  "players": [
+    {
+      "name": "MOCK_A",
+      "color": "blue",
+      "playerOrder": 1,
+      "bookValue": 0,
+      "continentValues": {},
+      "bankValue": 0,
+      "cardCount": 4,
+      "cards": [
+        {
+          "name": "central_america",
+          "id": "1895c8b5-626a-4069-9550-6a0c01c007e0"
+        },
+        {
+          "name": "quebec",
+          "id": "f5586ea9-6304-4ccc-8fb4-c48af2cd002a"
+        },
+        {
+          "name": "afghanistan",
+          "id": "fbcd38a7-ad11-43f4-9201-b51ac9c3f540"
+        },
+        {
+          "name": "siberia",
+          "id": "cf6c60f4-27fd-4f31-86d3-7ee9776e5506"
+        }
+      ],
+      "territories": [
+        {
+          "name": "indonesia",
+          "troops": 2
+        },
+        {
+          "name": "mongolia",
+          "troops": 3
+        },
+        {
+          "name": "eastern_united_states",
+          "troops": 4
+        },
+        {
+          "name": "alaska",
+          "troops": 5
+        },
+        {
+          "name": "scandinavia",
+          "troops": 2
+        },
+        {
+          "name": "eastern_australia",
+          "troops": 3
+        },
+        {
+          "name": "ontario",
+          "troops": 4
+        },
+        {
+          "name": "north_africa",
+          "troops": 5
+        },
+        {
+          "name": "argentina",
+          "troops": 2
+        },
+        {
+          "name": "congo",
+          "troops": 3
+        }
+      ],
+      "troopsTotal": 33,
+      "confirmed": true
+    },
+    {
+      "name": "MOCK_B",
+      "color": "red",
+      "playerOrder": 2,
+      "bookValue": 0,
+      "continentValues": {},
+      "bankValue": 0,
+      "cardCount": 4,
+      "cards": [
+        {
+          "name": "northern_europe",
+          "id": "3f1abe6a-deff-4e85-84e0-7753b3a40edb"
+        },
+        {
+          "name": "south_africa",
+          "id": "f7ef08a3-9dd9-4bfc-bc0d-3809598efe7e"
+        },
+        {
+          "name": "congo",
+          "id": "afdd1b16-d5db-4405-82a7-8fdf90e1fd31"
+        },
+        {
+          "name": "great_britain",
+          "id": "64341ff3-9bf3-4210-a9aa-727e43cced40"
+        }
+      ],
+      "territories": [
+        {
+          "name": "south_africa",
+          "troops": 3
+        },
+        {
+          "name": "siam",
+          "troops": 4
+        },
+        {
+          "name": "greenland",
+          "troops": 5
+        },
+        {
+          "name": "egypt",
+          "troops": 2
+        },
+        {
+          "name": "siberia",
+          "troops": 3
+        },
+        {
+          "name": "new_guinea",
+          "troops": 4
+        },
+        {
+          "name": "peru",
+          "troops": 5
+        },
+        {
+          "name": "madagascar",
+          "troops": 2
+        },
+        {
+          "name": "western_united_states",
+          "troops": 3
+        },
+        {
+          "name": "japan",
+          "troops": 4
+        }
+      ],
+      "troopsTotal": 35,
+      "confirmed": true
+    },
+    {
+      "name": "MOCK_C",
+      "color": "green",
+      "playerOrder": 3,
+      "bookValue": 0,
+      "continentValues": {},
+      "bankValue": 0,
+      "cardCount": 4,
+      "cards": [
+        {
+          "name": "ukraine",
+          "id": "68b5c7c2-3b3c-4a1b-a797-39cf27534cf1"
+        },
+        {
+          "name": "ontario",
+          "id": "2f5f5046-fa80-48f7-80bd-857d1ae6b72a"
+        },
+        {
+          "name": "irkutsk",
+          "id": "7b26e7fe-2671-4149-89b4-2be0ca8d4f1f"
+        },
+        {
+          "name": "eastern_united_states",
+          "id": "1ea82045-9472-4cf9-a7e4-b4f5a7d7c015"
+        }
+      ],
+      "territories": [
+        {
+          "name": "alberta",
+          "troops": 4
+        },
+        {
+          "name": "iceland",
+          "troops": 5
+        },
+        {
+          "name": "venezuela",
+          "troops": 2
+        },
+        {
+          "name": "east_africa",
+          "troops": 3
+        },
+        {
+          "name": "afghanistan",
+          "troops": 4
+        },
+        {
+          "name": "great_britain",
+          "troops": 5
+        },
+        {
+          "name": "irkutsk",
+          "troops": 2
+        },
+        {
+          "name": "china",
+          "troops": 3
+        },
+        {
+          "name": "northern_europe",
+          "troops": 4
+        },
+        {
+          "name": "central_america",
+          "troops": 5
+        }
+      ],
+      "troopsTotal": 37,
+      "confirmed": true
+    },
+    {
+      "name": "MOCK_D",
+      "color": "yellow",
+      "playerOrder": 4,
+      "bookValue": 0,
+      "continentValues": {},
+      "bankValue": 0,
+      "cardCount": 4,
+      "cards": [
+        {
+          "name": "indonesia",
+          "id": "d9181dd6-2c1d-46ef-b50f-5142b93361d8"
+        },
+        {
+          "name": "eastern_australia",
+          "id": "351b9026-6068-4c35-9b95-024352351d4f"
+        },
+        {
+          "name": "ural",
+          "id": "31212733-8801-44e5-94df-5d1171da914a"
+        },
+        {
+          "name": "western_united_states",
+          "id": "c170dfa8-8c1d-4ca8-a010-6bad90422f30"
+        }
+      ],
+      "territories": [
+        {
+          "name": "middle_east",
+          "troops": 5
+        },
+        {
+          "name": "southern_europe",
+          "troops": 2
+        },
+        {
+          "name": "western_europe",
+          "troops": 3
+        },
+        {
+          "name": "quebec",
+          "troops": 4
+        },
+        {
+          "name": "northwest_territory",
+          "troops": 5
+        },
+        {
+          "name": "ukraine",
+          "troops": 2
+        },
+        {
+          "name": "brazil",
+          "troops": 3
+        },
+        {
+          "name": "western_australia",
+          "troops": 4
+        },
+        {
+          "name": "yakutsk",
+          "troops": 5
+        },
+        {
+          "name": "kamchatka",
+          "troops": 2
+        }
+      ],
+      "troopsTotal": 35,
+      "confirmed": true
+    }
+  ],
+  "turnOrder": [
+    "MOCK_A",
+    "MOCK_B",
+    "MOCK_C",
+    "MOCK_D"
+  ],
+  "currentPlayer": "MOCK_D",
+  "round": 15,
+  "aerialAttack": false,
+  "aerialAttackEligible": false,
+  "aerialBridge": null,
+  "conquered": false,
+  "deck": [
+    "iceland",
+    "argentina",
+    "kamchatka",
+    "japan",
+    "western_australia",
+    "china",
+    "alberta",
+    "siam",
+    "new_guinea",
+    "brazil",
+    "yakutsk",
+    "northwest_territory",
+    "north_africa",
+    "wildcard1",
+    "southern_europe",
+    "alaska",
+    "western_europe",
+    "india",
+    "greenland",
+    "east_africa",
+    "scandinavia",
+    "peru",
+    "madagascar",
+    "egypt",
+    "mongolia",
+    "middle_east",
+    "venezuela",
+    "wildcard2"
+  ],
+  "discardPile": [],
+  "isInitialDeploy": false,
+  "continents": {
+    "south_america": {
+      "bonus": 2
+    },
+    "north_america": {
+      "bonus": 5
+    },
+    "africa": {
+      "bonus": 3
+    },
+    "europe": {
+      "bonus": 5
+    },
+    "asia": {
+      "bonus": 7
+    },
+    "australia": {
+      "bonus": 2
+    }
+  },
+  "continentCollectionCounts": {
+    "south_america": 0,
+    "north_america": 0,
+    "africa": 0,
+    "europe": 0,
+    "asia": 0,
+    "australia": 0
+  },
+  "cardplayConquered": false,
+  "cardEarnedViaAttack": true,
+  "cardEarnedViaCardplay": false,
+  "cardAwardedThisTurn": false,
+  "lastCardDrawn": null,
+  "risquePlayedCardsGallery": [],
+  "risqueLuckyLedger": {
+    "byPlayer": {}
+  },
+  "risqueLuckySessionRoster": [
+    "MOCK_A",
+    "MOCK_B",
+    "MOCK_C",
+    "MOCK_D"
+  ],
+  "attackPhase": "attack",
+  "attackingTerritory": null,
+  "acquiredTerritory": null,
+  "minTroopsToTransfer": 0,
+  "conqueredThisTurn": false,
+  "risqueAutosaveTier": "manual",
+  "risqueReplayTapeSessionKey": "mock-r15-595cb8aa-de66-4104-8d15-524d6875317f",
+  "risqueReplayTape": {
+    "v": 2,
+    "events": [],
+    "openingRecorded": false,
+    "hasDealFrames": false
+  },
+  "risqueReplayDealDeployDiskWritten": true
+}

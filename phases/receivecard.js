@@ -55,6 +55,8 @@
         var def = btn.getAttribute("data-default-label") || __risqueReceiveCardContinueDefaultLabel;
         btn.disabled = false;
         btn.removeAttribute("aria-busy");
+        btn.hidden = false;
+        btn.removeAttribute("aria-hidden");
         btn.textContent = def;
       }
     }
@@ -327,12 +329,122 @@
     var btn = document.getElementById("receivecard-btn-end");
     if (btn) {
       btn.disabled = true;
-      btn.textContent = "Continuing…";
+      btn.setAttribute("aria-hidden", "true");
+      btn.hidden = true;
     }
     window.__risqueReceiveCardStagingTimer = setTimeout(function () {
       window.__risqueReceiveCardStagingTimer = null;
       receiveCardRunTurnAdvanceAndHandoff();
     }, receiveCardStagingDelayMs());
+  }
+
+  function receiveCardWritePeriodicRestartArtifacts(gs) {
+    if (!gs || typeof window.risqueLocalDiskIsActive !== "function" || !window.risqueLocalDiskIsActive()) {
+      return Promise.resolve();
+    }
+    if (typeof window.risqueLocalDiskWrite !== "function") {
+      return Promise.resolve();
+    }
+    var forDisk = gs;
+    try {
+      if (typeof window.risqueStripReplayFromGameStateClone === "function") {
+        forDisk = window.risqueStripReplayFromGameStateClone(gs);
+      }
+    } catch (eStrip) {
+      forDisk = gs;
+    }
+    var gameJson;
+    try {
+      gameJson = JSON.stringify(forDisk, null, 2);
+    } catch (eGj) {
+      return Promise.reject(eGj);
+    }
+    var replayPack = null;
+    try {
+      replayPack =
+        typeof window.risqueBuildSessionReplayExport === "function" ? window.risqueBuildSessionReplayExport(gs) : null;
+    } catch (eRp) {
+      replayPack = null;
+    }
+    var chain = window.risqueLocalDiskWrite("risque-periodic-restart-game.json", gameJson);
+    if (replayPack && replayPack.format === "risque-replay-v1") {
+      chain = chain.then(function () {
+        return window.risqueLocalDiskWrite(
+          "risque-periodic-restart-replay.json",
+          JSON.stringify(replayPack, null, 2)
+        );
+      });
+    }
+    chain = chain.then(function () {
+      return window.risqueLocalDiskWrite(".risque-pending-periodic-host-resume", '{"v":1}\n');
+    });
+    return Promise.resolve(chain).catch(function (eW) {
+      receiveCardLog("Periodic restart file write failed", eW);
+      throw eW;
+    });
+  }
+
+  /**
+   * Autosave tiers 1–3 (safe_fun / safe_lean / safe_no_replay): never trigger launcher periodic browser restart,
+   * even when risque-launcher-paths.json sets periodicBrowserRestartEveryRounds (file:// reads interval via disk API).
+   */
+  function receiveCardAutosaveTierSkipsPeriodicBrowserRestart(gs) {
+    var t = gs && gs.risqueAutosaveTier != null ? String(gs.risqueAutosaveTier).trim() : "";
+    return t === "safe_fun" || t === "safe_lean" || t === "safe_no_replay";
+  }
+
+  /** file:// cannot fetch risque-launcher-paths.json (opaque origin); read interval from save-folder context via disk API. */
+  function receiveCardResolvePeriodicRestartEveryRounds() {
+    function fromObj(o) {
+      var every = 0;
+      try {
+        if (o && o.periodicBrowserRestartEveryRounds != null) {
+          every = Math.floor(Number(o.periodicBrowserRestartEveryRounds));
+          if (!isFinite(every) || every < 0) every = 0;
+        }
+      } catch (eJ) {
+        every = 0;
+      }
+      return every;
+    }
+    var fetchP =
+      typeof window.risqueFetchLauncherPathsJsonFresh === "function"
+        ? window.risqueFetchLauncherPathsJsonFresh()
+        : typeof window.risqueFetchLauncherPathsJson === "function"
+          ? window.risqueFetchLauncherPathsJson()
+          : Promise.resolve(null);
+    return Promise.resolve(fetchP)
+      .then(
+        function (j) {
+          return fromObj(j);
+        },
+        function () {
+          return 0;
+        }
+      )
+      .then(function (n) {
+        if (n > 0) return n;
+        if (
+          typeof window.risqueLocalDiskIsActive !== "function" ||
+          !window.risqueLocalDiskIsActive() ||
+          typeof window.risqueLocalDiskRead !== "function"
+        ) {
+          return 0;
+        }
+        return window
+          .risqueLocalDiskRead(".risque-launcher-resume-context.json")
+          .then(function (rj) {
+            if (!rj || !rj.ok || rj.content == null) return 0;
+            try {
+              return fromObj(JSON.parse(String(rj.content)));
+            } catch (eParse) {
+              return 0;
+            }
+          })
+          .catch(function () {
+            return 0;
+          });
+      });
   }
 
   function receiveCardRunTurnAdvanceAndHandoff() {
@@ -391,7 +503,7 @@
             ? window.risqueSessionDiskAwaitTurnWriteQueue()
             : diskChain;
       }
-      function runReceiveCardHandoffAndNavigate() {
+      function runReceiveCardHandoffAndNavigate(periodicEveryRounds) {
         if (typeof window.risqueHostReplaceShellGameState === "function") {
           window.risqueHostReplaceShellGameState(gsAfter);
         }
@@ -421,6 +533,99 @@
           }
         }
         var PGn = window.risquePhases && window.risquePhases.privacyGate;
+        var pe = periodicEveryRounds != null ? Math.floor(Number(periodicEveryRounds)) : 0;
+        if (!isFinite(pe) || pe < 0) {
+          pe = 0;
+        }
+        var wantPeriodic =
+          !receiveCardAutosaveTierSkipsPeriodicBrowserRestart(gsAfter) &&
+          pe > 0 &&
+          completedRound > 0 &&
+          completedRound % pe === 0 &&
+          typeof window.risqueLocalDiskRequestBrowserRestart === "function" &&
+          typeof window.risqueLocalDiskIsActive === "function" &&
+          window.risqueLocalDiskIsActive() &&
+          !window.risqueDisplayIsPublic;
+        if (wantPeriodic) {
+          Promise.resolve()
+            .then(function () {
+              return receiveCardWritePeriodicRestartArtifacts(gsAfter);
+            })
+            .then(function () {
+              try {
+                localStorage.setItem("risqueAutoResumeCardplayAfterLauncherRestart", "1");
+              } catch (eLsAr) {
+                /* ignore */
+              }
+            })
+            .then(function () {
+              if (PGn && typeof PGn.mountHostTabletHandoff === "function") {
+                PGn.mountHostTabletHandoff({
+                  message:
+                    "THE GAME WILL RESTART AND BE BACK IN A MOMENT.\n\n" + nextHandoffMsg,
+                  buttonLabel: "Continue",
+                  autoContinueAfterMs: 5000,
+                  retainOverlayAfterContinue: true,
+                  onContinue: function () {
+                    try {
+                      localStorage.setItem("gameState", JSON.stringify(gsAfter));
+                    } catch (eFlush) {
+                      /* ignore */
+                    }
+                    var req = window.risqueLocalDiskRequestBrowserRestart;
+                    if (typeof req !== "function") return;
+                    Promise.resolve(req())
+                      .then(function (j) {
+                        receiveCardLog("Browser restart API ok", j || {});
+                        receiveCardSetMessage(
+                          "Restart scheduled — Chromium/Edge should close in a few seconds, then the launcher will open again."
+                        );
+                      })
+                      .catch(function (eRs) {
+                        receiveCardLog("Browser restart request failed", eRs);
+                        receiveCardSetMessage(
+                          "Restart failed (update scripts + restart RISQUE.bat so the save helper has /api/restart-browser). Going to card play."
+                        );
+                        try {
+                          if (PGn && typeof PGn.unmount === "function") {
+                            PGn.unmount();
+                          }
+                        } catch (eUm) {
+                          /* ignore */
+                        }
+                        goNextPlayerCardplay();
+                      });
+                  },
+                  onLog: function (line) {
+                    receiveCardLog(line);
+                  }
+                });
+              } else {
+                var req2 = window.risqueLocalDiskRequestBrowserRestart;
+                if (typeof req2 === "function") {
+                  Promise.resolve(req2()).catch(function (e2) {
+                    receiveCardLog("Browser restart request failed (no handoff)", e2);
+                  });
+                }
+                goNextPlayerCardplay();
+              }
+            })
+            .catch(function (ePer) {
+              receiveCardLog("Periodic restart prep failed", ePer);
+              if (!window.risqueDisplayIsPublic && PGn && typeof PGn.mountHostTabletHandoff === "function") {
+                PGn.mountHostTabletHandoff({
+                  message: nextHandoffMsg,
+                  onContinue: goNextPlayerCardplay,
+                  onLog: function (line) {
+                    receiveCardLog(line);
+                  }
+                });
+              } else {
+                goNextPlayerCardplay();
+              }
+            });
+          return;
+        }
         if (!window.risqueDisplayIsPublic && PGn && typeof PGn.mountHostTabletHandoff === "function") {
           PGn.mountHostTabletHandoff({
             message: nextHandoffMsg,
@@ -439,11 +644,13 @@
             ? window.risqueSessionDiskAwaitTurnWriteQueue()
             : Promise.resolve(true);
         })
-        .then(
-          function () {
-            runReceiveCardHandoffAndNavigate();
-          },
-          function (err) {
+        .then(function () {
+          return receiveCardResolvePeriodicRestartEveryRounds();
+        })
+        .then(function (every) {
+          runReceiveCardHandoffAndNavigate(every);
+        })
+        .catch(function (err) {
             receiveCardLog("Turn save / round autosave failed", err);
             receiveCardSetMessage(
               "Could not finish saving to disk. Check folder access, wait a moment, then tap Continue again."
@@ -454,8 +661,7 @@
             } catch (eRelF) {
               /* ignore */
             }
-          }
-        );
+          });
     } catch (eRcBody) {
       try {
         window.__risqueReceiveCardEndTurnBusy = false;

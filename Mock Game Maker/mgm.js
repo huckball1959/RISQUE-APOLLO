@@ -1611,6 +1611,7 @@
       delete gs.risquePublicCardplayRecap;
       delete gs.risquePublicCardplayRecapAckRequiredSeq;
       delete gs.risquePublicCardplayRecapSeq;
+      delete gs.risquePublicCardplayAerialSkipHostDecisionSeq;
       delete gs.risquePublicCardplayPrimary;
       delete gs.risquePublicCardplayReport;
       delete gs.risquePublicCardplayHighlightLabels;
