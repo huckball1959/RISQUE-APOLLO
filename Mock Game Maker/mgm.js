@@ -359,6 +359,7 @@
     if (!gs || typeof gs !== "object") return;
     delete gs.risqueReplayPlaybackActive;
     delete gs.risqueReplayHudRound;
+    delete gs.risqueReplayHudActorLine;
     delete gs.risqueReplayBattleFlashLabels;
     delete gs.risquePublicReplayRound;
     delete gs.risquePublicReplayEliminationSplash;

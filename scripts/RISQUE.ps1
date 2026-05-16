@@ -101,8 +101,8 @@ $RepoRoot = Split-Path -Parent $ScriptDir
 
 # Chromium/Edge command line marker so risque-browser-restart-job.ps1 can kill only RISQUE-launched windows.
 $Global:RisqueLauncherInstanceFlag = "--risque-launcher-instance=risque-gemini-local"
-# After every N completed rounds (receive-card round wrap), host may request a full browser restart (local + disk API). Set RISQUE_PERIODIC_RESTART_ROUNDS=0 to disable.
-$PeriodicBrowserRestartRounds = 5
+# Round-boundary browser restart is off by default (lean session). Set RISQUE_PERIODIC_RESTART_ROUNDS=N (N>0) to re-enable.
+$PeriodicBrowserRestartRounds = 0
 if ($null -ne $env:RISQUE_PERIODIC_RESTART_ROUNDS -and "${env:RISQUE_PERIODIC_RESTART_ROUNDS}".Trim() -match '^(\d+)$') {
     $PeriodicBrowserRestartRounds = [int]$Matches[1]
 }
