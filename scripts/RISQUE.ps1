@@ -4,7 +4,7 @@
   RISQUE-GEMINI launcher — flat save folder, Chromium download path, then Local vs hosted GEMINI; dual displays by default.
 
 .DESCRIPTION
- - Ensures the save folder exists (default C:\risque\save, or RISQUE_DOWNLOAD_PATH).
+ - Ensures the save folder exists (default <drive>:\github\save when repo is under \github\, else C:\risque\save, or RISQUE_DOWNLOAD_PATH).
  - Local launch only: starts a tiny loopback save API (risque-disk-server.ps1 on 127.0.0.1, default port 5599) so the game writes DD.json / rNpM*.json into the save root with zero browser folder picks. Hosted launch skips the API.
  - Sets Chromium default download directory to that folder (JSON downloads land there; browser profile lives under %TEMP%).
  - Writes risque-launcher-paths.json beside the repo (gitignored) for path hints.
@@ -66,10 +66,24 @@ if ($PrepareEnvOnly) {
 
 $DefaultHostedUrl = "https://huckball1959.github.io/RISQUE-GEMINI/game.html?phase=login&loginLegacyNext=game.html%3Fphase%3DplayerSelect%26selectKind%3DfirstCard&loginLoadRedirect=game.html%3Fphase%3Dcardplay%26legacyNext%3Dincome.html"
 
-$SaveRoot = if ([string]::IsNullOrWhiteSpace($env:RISQUE_DOWNLOAD_PATH)) {
-    "C:\risque\save"
-} else {
-    $env:RISQUE_DOWNLOAD_PATH.Trim()
+function Get-RisqueDefaultSaveRoot {
+    param([string]$RepoRootPath)
+    if (-not [string]::IsNullOrWhiteSpace($env:RISQUE_DOWNLOAD_PATH)) {
+        return $env:RISQUE_DOWNLOAD_PATH.Trim()
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RepoRootPath)) {
+        try {
+            $repoNorm = [System.IO.Path]::GetFullPath($RepoRootPath.Trim())
+            if ($repoNorm -match '^[A-Za-z]:\\github\\') {
+                $githubRoot = Split-Path -Parent $repoNorm.TrimEnd('\')
+                return Join-Path $githubRoot 'save'
+            }
+        }
+        catch {
+            # ignore; use fallback below
+        }
+    }
+    return 'C:\risque\save'
 }
 
 function Get-RisqueSaveRootOrParentIfBranch {
@@ -82,7 +96,7 @@ function Get-RisqueSaveRootOrParentIfBranch {
         return $Path
     }
     $leaf = [System.IO.Path]::GetFileName($full.TrimEnd('\', '/'))
-    # Do not include SAVE/save here: the default flat root is C:\risque\save and must stay that path.
+    # Do not include SAVE/save here: the flat root is <drive>:\github\save (lab) or C:\risque\save.
     foreach ($b in @('GAME', 'REPLAY', 'STAGING', 'archive', 'EMERGENCY', 'LOGS')) {
         if ($leaf.Equals($b, [StringComparison]::OrdinalIgnoreCase)) {
             $parent = [System.IO.Path]::GetDirectoryName($full)
@@ -92,15 +106,21 @@ function Get-RisqueSaveRootOrParentIfBranch {
     }
     return $full
 }
-$SaveRoot = Get-RisqueSaveRootOrParentIfBranch -Path $SaveRoot
 
 $ScriptDir = $PSScriptRoot
 $BrowserProfileHost = Join-Path $env:TEMP "risque-browser-profiles\host"
 $BrowserProfilePublic = Join-Path $env:TEMP "risque-browser-profiles\public"
 $RepoRoot = Split-Path -Parent $ScriptDir
 
+$SaveRoot = Get-RisqueDefaultSaveRoot -RepoRootPath $RepoRoot
+$SaveRoot = Get-RisqueSaveRootOrParentIfBranch -Path $SaveRoot
+
 # Chromium/Edge command line marker so risque-browser-restart-job.ps1 can kill only RISQUE-launched windows.
-$Global:RisqueLauncherInstanceFlag = "--risque-launcher-instance=risque-gemini-local"
+$launcherInstanceId = "risque-gemini-local"
+if (-not [string]::IsNullOrWhiteSpace($env:RISQUE_LAUNCHER_INSTANCE)) {
+    $launcherInstanceId = $env:RISQUE_LAUNCHER_INSTANCE.Trim()
+}
+$Global:RisqueLauncherInstanceFlag = "--risque-launcher-instance=$launcherInstanceId"
 # Round-boundary browser restart is off by default (lean session). Set RISQUE_PERIODIC_RESTART_ROUNDS=N (N>0) to re-enable.
 $PeriodicBrowserRestartRounds = 0
 if ($null -ne $env:RISQUE_PERIODIC_RESTART_ROUNDS -and "${env:RISQUE_PERIODIC_RESTART_ROUNDS}".Trim() -match '^(\d+)$') {
@@ -216,7 +236,7 @@ function Start-RisqueLocalDiskApi {
             $hadListener = $true
             try {
                 $hj = $resp.Content | ConvertFrom-Json
-                if ($null -ne $hj -and $hj.supportsRestartBrowser -eq $true) {
+                if ($null -ne $hj -and $hj.supportsRestartBrowser -eq $true -and $hj.supportsWipeRoot -eq $true) {
                     $alreadyCurrent = $true
                 }
             }
@@ -232,7 +252,7 @@ function Start-RisqueLocalDiskApi {
         return $base
     }
     if ($hadListener) {
-        Write-Warning "Stopping outdated save helper on port $Port (missing features); starting updated risque-disk-server.ps1."
+        Write-Warning "Stopping outdated save helper on port $Port (missing wipe-root / restart-browser); starting updated risque-disk-server.ps1."
     }
     $serverScript = Join-Path $ScriptDir "risque-disk-server.ps1"
     if (-not (Test-Path -LiteralPath $serverScript)) {
@@ -242,7 +262,7 @@ function Start-RisqueLocalDiskApi {
     # Retry: stale listener often survives when TCP OwningProcess is unavailable; require supportsRestartBrowser in health.
     for ($spin = 1; $spin -le 3; $spin++) {
         if ($spin -gt 1) {
-            Write-Warning "Save helper on $base did not report supportsRestartBrowser; recycling listener (attempt $spin/3)."
+            Write-Warning "Save helper on $base did not report supportsWipeRoot; recycling listener (attempt $spin/3)."
         }
         Stop-RisqueDiskListenerOnPort -PortNum $Port
         try {
@@ -264,7 +284,7 @@ function Start-RisqueLocalDiskApi {
                 if ($r2.StatusCode -eq 200) {
                     try {
                         $hj2 = $r2.Content | ConvertFrom-Json
-                        if ($null -ne $hj2 -and $hj2.supportsRestartBrowser -eq $true) {
+                        if ($null -ne $hj2 -and $hj2.supportsRestartBrowser -eq $true -and $hj2.supportsWipeRoot -eq $true) {
                             Write-Host "Session files will save under: $SaveRootPath" -ForegroundColor Green
                             return $base
                         }
@@ -394,6 +414,14 @@ function Add-RisqueReplayDebugQuery {
     return $Url + $sep + 'replayDebug=' + $Value
 }
 
+function Add-RisqueLsReplayLiteQuery {
+    param([Parameter(Mandatory)][string]$Url)
+    if ([string]::IsNullOrWhiteSpace($Url)) { return $Url }
+    if ($Url -match '[?&]lsReplayLite=') { return $Url }
+    $sep = $(if ($Url -match '\?') { '&' } else { '?' })
+    return $Url + $sep + 'lsReplayLite=1'
+}
+
 function Get-RisqueLocalDiskHostPublicUrls {
     param(
         [Parameter(Mandatory)][string]$RepoRootPath,
@@ -416,6 +444,10 @@ function Get-RisqueLocalDiskHostPublicUrls {
     elseif ($ReplayDebug) {
         $hostU = Add-RisqueReplayDebugQuery -Url $hostU -Value '1'
         $pubU = Add-RisqueReplayDebugQuery -Url $pubU -Value '1'
+    }
+    if ($env:RISQUE_LS_REPLAY_LITE -eq '1') {
+        $hostU = Add-RisqueLsReplayLiteQuery -Url $hostU
+        $pubU = Add-RisqueLsReplayLiteQuery -Url $pubU
     }
     return @{
         Host   = $hostU
@@ -610,6 +642,11 @@ catch {
     Write-Host "ERROR: Could not create $SaveRoot - check permissions or RISQUE_DOWNLOAD_PATH." -ForegroundColor Red
     Write-Host $_.Exception.Message
     exit 1
+}
+
+if ($env:RISQUE_LAUNCHER_INSTANCE -eq "risque-apollo-local") {
+    $SkipMenu = $true
+    $Hosted = $false
 }
 
 $showMenu = (

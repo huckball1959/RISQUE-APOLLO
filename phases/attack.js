@@ -798,16 +798,38 @@ function formatBattleOutcomeFriendly(attackerOwner, defenderOwner, attackerLosse
 }
 
 function saveGameState() {
+  var gs = window.gameState;
+  if (!gs) return;
+  if (typeof window.risqueWriteGameStateLocalStorageLite === "function") {
+    try {
+      window.risqueWriteGameStateLocalStorageLite(gs);
+    } catch (eLite) {
+      /* fallback below */
+    }
+    if (typeof window.risqueReplayScheduleTapeSidecarPersist === "function") {
+      try {
+        window.risqueReplayScheduleTapeSidecarPersist(gs);
+      } catch (eSide) {
+        /* ignore */
+      }
+    }
+    if (typeof window.risqueScheduleMirrorPush === "function") {
+      window.risqueScheduleMirrorPush();
+    } else if (typeof window.risqueMirrorPushGameState === "function") {
+      window.risqueMirrorPushGameState();
+    }
+    return;
+  }
   if (typeof window.risquePersistHostGameState === "function") {
     try {
-      window.risquePersistHostGameState(window.gameState);
+      window.risquePersistHostGameState(gs);
       return;
     } catch (eFastPersist) {
       /* fallback below */
     }
   }
   function writeState() {
-    localStorage.setItem("gameState", JSON.stringify(window.gameState));
+    localStorage.setItem("gameState", JSON.stringify(gs));
   }
   try {
     writeState();
@@ -880,6 +902,12 @@ function checkPlayerElimination(defenderPlayer) {
     }
   });
   window.gameState.defeatedPlayer = defenderPlayer.name;
+  if (
+    window.gameUtils &&
+    typeof window.gameUtils.syncConquestPendingNewContinents === 'function'
+  ) {
+    window.gameUtils.syncConquestPendingNewContinents(window.gameState);
+  }
   const turnOrderBeforeElimination = Array.isArray(window.gameState.turnOrder)
     ? window.gameState.turnOrder.slice()
     : [];
@@ -1999,7 +2027,15 @@ function autoCompleteTroopTransferLeaveBehind(leaveBehind, opts) {
   }
   if (typeof window.risqueReplayRecordBattle === 'function') {
     try {
-      window.risqueReplayRecordBattle(window.gameState);
+      window.risqueReplayRecordBattle(window.gameState, {
+        territoryCaptured: true,
+        attackerName: player.name,
+        defenderName:
+          window.gameState.risqueCheapReplayLastDefender != null
+            ? String(window.gameState.risqueCheapReplayLastDefender)
+            : '',
+        territoryName: acquired.name
+      });
     } catch (eRep) {
       /* ignore */
     }
@@ -2199,6 +2235,12 @@ function applyBattleRoundAfterRoll(snap, opts) {
     attacker.troops = attackerTerritory.troops;
     opponent.territories = opponent.territories.filter(t => t.name !== defenderTerritory.name);
     player.territories.push({ name: defenderTerritory.name, troops: minTroopsToTransfer });
+    if (
+      window.gameUtils &&
+      typeof window.gameUtils.recordConquestTerritoryCapture === 'function'
+    ) {
+      window.gameUtils.recordConquestTerritoryCapture(window.gameState, defenderTerritory.name);
+    }
     window.gameState.cardEarnedViaAttack = true;
     requestAnimationFrame(function () {
       if (typeof window.risqueSyncHostAttackCardEarnedIndicator === 'function') {
@@ -2206,6 +2248,11 @@ function applyBattleRoundAfterRoll(snap, opts) {
       }
     });
     window.gameState.conqueredThisTurn = true;
+    try {
+      window.gameState.risqueCheapReplayLastDefender = String(opponent.name || '');
+    } catch (eDefCap) {
+      /* ignore */
+    }
     window.gameState.attackingTerritory = { name: attackerTerritory.name, troops: attackerTerritory.troops };
     window.gameState.acquiredTerritory = { name: defenderTerritory.name, troops: minTroopsToTransfer };
     window.gameState.minTroopsToTransfer = minTroopsToTransfer;
@@ -2220,11 +2267,10 @@ function applyBattleRoundAfterRoll(snap, opts) {
       window.gameState.risqueInstantBlitzTransferUi = true;
     }
 
-    /* Record capture on tape before auto-transfer / pending_transfer. Campaign used to skip this and rely
-       only on post-transfer frames; that could drop the decisive-roll board from replay (last hop looked idle). */
+    /* Tier 5 still: capture after troop transfer (not mid pending_transfer). Granular tape records here. */
     if (typeof window.risqueReplayRecordBattle === 'function') {
       try {
-        window.risqueReplayRecordBattle(window.gameState);
+        window.risqueReplayRecordBattle(window.gameState, { skipIfPendingTransfer: true });
       } catch (eRep) {
         /* ignore */
       }
@@ -2308,7 +2354,12 @@ function applyBattleRoundAfterRoll(snap, opts) {
 
   if (typeof window.risqueReplayRecordBattle === 'function') {
     try {
-      window.risqueReplayRecordBattle(window.gameState);
+      window.risqueReplayRecordBattle(window.gameState, {
+        territoryCaptured: false,
+        attackerName: player.name,
+        defenderName: opponent.name,
+        territoryName: defenderTerritory.name
+      });
     } catch (eRep) {
       /* ignore */
     }
@@ -2507,7 +2558,18 @@ function completeTroopTransferFromPending(additional) {
   saveGameState();
   if (typeof window.risqueReplayRecordBattle === 'function') {
     try {
-      window.risqueReplayRecordBattle(window.gameState);
+      var defNm =
+        deferredElimSnapshot && deferredElimSnapshot.defenderName
+          ? String(deferredElimSnapshot.defenderName)
+          : window.gameState.risqueCheapReplayLastDefender != null
+            ? String(window.gameState.risqueCheapReplayLastDefender)
+            : '';
+      window.risqueReplayRecordBattle(window.gameState, {
+        territoryCaptured: true,
+        attackerName: player.name,
+        defenderName: defNm,
+        territoryName: acquired.name
+      });
     } catch (eRep) {
       /* ignore */
     }

@@ -1065,18 +1065,21 @@
       return p && p.name === defeatedName;
     });
     var pendingCont = [];
-    if (
+    if (window.gameUtils && typeof window.gameUtils.syncConquestPendingNewContinents === "function") {
+      pendingCont = window.gameUtils.syncConquestPendingNewContinents(gs);
+    } else if (
       defeatedPl &&
       window.gameUtils &&
       typeof window.gameUtils.computePendingContinentsAfterElimination === "function"
     ) {
       pendingCont = window.gameUtils.computePendingContinentsAfterElimination(gs, gs.currentPlayer, defeatedPl);
+      var paidSoFar = gs.risqueConquestChainPaidContinents || [];
+      pendingCont = pendingCont.filter(function (k) {
+        return paidSoFar.indexOf(k) === -1;
+      });
+      gs.pendingNewContinents = pendingCont;
     }
-    /* Same campaign: only pay continent income for land newly taken from *this* defeat — not again for continents already paid earlier in the chain. */
     var paidSoFar = gs.risqueConquestChainPaidContinents || [];
-    pendingCont = pendingCont.filter(function (k) {
-      return paidSoFar.indexOf(k) === -1;
-    });
     receiveCardLog("Conquest elimination pending continents", {
       pending: pendingCont,
       defeated: defeatedName,
@@ -1277,6 +1280,15 @@
     var uiOverlay = document.getElementById("ui-overlay");
     if (!uiOverlay || !window.gameUtils) return;
 
+    if (typeof window.risqueRestoreHostMapCanvasFromPhaseArtifacts === "function") {
+      window.risqueRestoreHostMapCanvasFromPhaseArtifacts();
+    }
+    try {
+      delete window.__risqueSuppressHostMapRedraw;
+    } catch (eSupRc) {
+      /* ignore */
+    }
+
     var conquestElim = false;
     try {
       conquestElim = new URLSearchParams(window.location.search).get("conquestElim") === "1";
@@ -1413,13 +1425,17 @@
       window.initReceiveCardPhase();
     }
 
-    requestAnimationFrame(function () {
-      window.gameUtils.resizeCanvas();
-      if (window.gameState) {
-        window.gameUtils.renderTerritories(null, window.gameState);
-        window.gameUtils.renderStats(window.gameState);
-      }
-    });
+    if (typeof window.risqueRepaintHostMapSoon === "function" && window.gameState) {
+      window.risqueRepaintHostMapSoon(window.gameState);
+    } else {
+      requestAnimationFrame(function () {
+        window.gameUtils.resizeCanvas();
+        if (window.gameState) {
+          window.gameUtils.renderTerritories(null, window.gameState);
+          window.gameUtils.renderStats(window.gameState);
+        }
+      });
+    }
   }
 
   window.risquePhases = window.risquePhases || {};

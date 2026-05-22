@@ -192,6 +192,84 @@
     };
   }
 
+  function commitNewGameLoginAfterRosterOk(filled, ui) {
+    ui = ui || {};
+    var legacyNext = ui.legacyNext || "game.html?phase=playerSelect&selectKind=firstCard";
+    var redirectDelayMs = ui.redirectDelayMs != null ? ui.redirectDelayMs : 2000;
+    var skipPersist = !!ui.skipPersist;
+    var onLoginSuccess = ui.onLoginSuccess;
+    var onLog = ui.onLog || logLogin;
+    var elError = ui.elError;
+
+    pushPublicLoginFadeStartForMirror();
+    var gs = buildGameStateFromRows(filled);
+    copyHostPreflightReplaySaveFlagIntoNewGame(gs);
+    if (typeof window.risqueReplayClearTapeSidecar === "function") {
+      window.risqueReplayClearTapeSidecar();
+    }
+    if (typeof window.risqueSessionDiskInvalidateCache === "function") {
+      window.risqueSessionDiskInvalidateCache();
+    }
+    if (typeof window.risqueClearStoredSessionForNewGame === "function") {
+      window.risqueClearStoredSessionForNewGame();
+    }
+    if (!skipPersist) {
+      try {
+        localStorage.setItem("gameState", JSON.stringify(gs));
+      } catch (eLs) {
+        if (elError) {
+          elError.textContent =
+            "Could not save roster (browser storage full or blocked). Free space or clear site data, then try again.";
+        }
+        onLog("Login failed: localStorage " + (eLs && eLs.message ? eLs.message : String(eLs)));
+        return;
+      }
+    }
+    if (typeof window.risqueHostReplaceShellGameState === "function") {
+      window.risqueHostReplaceShellGameState(gs);
+    }
+    persistLastPlayerNames(filled);
+    onLog("Login OK, redirecting to " + legacyNext, {
+      players: filled.map(function (x) {
+        return x.name;
+      })
+    });
+    if (ui.welcomeText) ui.welcomeText.classList.add("fade-out");
+    if (ui.loginButton) ui.loginButton.classList.add("fade-out");
+    if (ui.fadeRoot) {
+      Array.prototype.forEach.call(ui.fadeRoot.querySelectorAll(".risque-login-preset-slot"), function (b) {
+        b.classList.add("fade-out");
+      });
+    }
+    if (ui.randomOrderBtn) ui.randomOrderBtn.classList.add("fade-out");
+    if (ui.loginContainer) ui.loginContainer.classList.add("fade-out");
+    if (ui.loadButton) ui.loadButton.classList.add("fade-out");
+    if (ui.fadeRoot) {
+      Array.prototype.forEach.call(ui.fadeRoot.querySelectorAll(".login-doc-button"), function (b) {
+        b.classList.add("fade-out");
+      });
+      ui.fadeRoot.classList.add("fade-out");
+    }
+    if (typeof ui.removeResizeListener === "function") {
+      ui.removeResizeListener();
+    }
+    setTimeout(function () {
+      if (typeof onLoginSuccess === "function") {
+        mirrorPushGameStateBeforeLoginNavigate();
+        if (ui.overlay && ui.overlay.parentNode) {
+          ui.overlay.remove();
+        }
+        onLoginSuccess(gs);
+        return;
+      }
+      mirrorPushGameStateBeforeLoginNavigate();
+      if (ui.overlay && ui.overlay.parentNode) {
+        ui.overlay.remove();
+      }
+      navigateGameHtmlPreferSoft(legacyNext);
+    }, redirectDelayMs);
+  }
+
   /** Host may toggle replay disk save off on the login shell; carry that into the new session roster. */
   function copyHostPreflightReplaySaveFlagIntoNewGame(newGs) {
     try {
@@ -199,7 +277,7 @@
       if (prev && typeof prev === "object" && prev.risqueReplayDiskSaveDisabled === true) {
         newGs.risqueReplayDiskSaveDisabled = true;
       }
-      var allowed = { safe_fun: 1, safe_lean: 1, safe_no_replay: 1, manual: 1 };
+      var allowed = { safe_fun: 1, safe_lean: 1, safe_no_replay: 1, manual: 1, battle_stills: 1, host_ultra: 1 };
       var tier = null;
       if (prev && typeof prev === "object" && prev.risqueAutosaveTier && allowed[prev.risqueAutosaveTier]) {
         tier = prev.risqueAutosaveTier;
@@ -211,9 +289,10 @@
           tier = "";
         }
       }
-      if (tier && allowed[tier]) {
-        newGs.risqueAutosaveTier = tier;
+      if (!tier || !allowed[tier]) {
+        tier = "battle_stills";
       }
+      newGs.risqueAutosaveTier = tier;
     } catch (e) {
       /* ignore */
     }
@@ -1182,52 +1261,21 @@
           onLog("Login failed: colors not unique");
           return;
         }
-        pushPublicLoginFadeStartForMirror();
-        var gs = buildGameStateFromRows(filled);
-        copyHostPreflightReplaySaveFlagIntoNewGame(gs);
-        if (typeof window.risqueReplayClearTapeSidecar === "function") {
-          window.risqueReplayClearTapeSidecar();
-        }
-        if (typeof window.risqueSessionDiskInvalidateCache === "function") {
-          window.risqueSessionDiskInvalidateCache();
-        }
-        if (typeof window.risqueClearStoredSessionForNewGame === "function") {
-          window.risqueClearStoredSessionForNewGame();
-        }
-        if (!skipPersist) {
-          try {
-            localStorage.setItem("gameState", JSON.stringify(gs));
-          } catch (eLs) {
-            if (elError) {
-              elError.textContent =
-                "Could not save roster (browser storage full or blocked). Free space or clear site data, then try again.";
-            }
-            onLog("Login failed: localStorage " + (eLs && eLs.message ? eLs.message : String(eLs)));
-            return;
+        commitNewGameLoginAfterRosterOk(filled, {
+          legacyNext: legacyNext,
+          redirectDelayMs: redirectDelayMs,
+          skipPersist: skipPersist,
+          onLoginSuccess: onLoginSuccess,
+          onLog: onLog,
+          elError: elError,
+          welcomeText: welcomeText,
+          loginButton: loginButton,
+          fadeRoot: formRoot,
+          randomOrderBtn: randomOrderBtn,
+          removeResizeListener: function () {
+            window.removeEventListener("resize", onResizeHud);
           }
-        }
-        if (typeof window.risqueHostReplaceShellGameState === "function") {
-          window.risqueHostReplaceShellGameState(gs);
-        }
-        persistLastPlayerNames(filled);
-        onLog("Login OK, redirecting to " + legacyNext, { players: names });
-        if (welcomeText) welcomeText.classList.add("fade-out");
-        loginButton.classList.add("fade-out");
-        Array.prototype.forEach.call(formRoot.querySelectorAll(".risque-login-preset-slot"), function (b) {
-          b.classList.add("fade-out");
         });
-        if (randomOrderBtn) randomOrderBtn.classList.add("fade-out");
-        formRoot.classList.add("fade-out");
-        window.removeEventListener("resize", onResizeHud);
-        setTimeout(function () {
-          if (typeof onLoginSuccess === "function") {
-            mirrorPushGameStateBeforeLoginNavigate();
-            onLoginSuccess(gs);
-            return;
-          }
-          mirrorPushGameStateBeforeLoginNavigate();
-          navigateGameHtmlPreferSoft(legacyNext);
-        }, redirectDelayMs);
       });
     }
 
@@ -1782,55 +1830,24 @@
         onLog("Login failed: colors not unique");
         return;
       }
-      pushPublicLoginFadeStartForMirror();
-      var gs = buildGameStateFromRows(filled);
-      copyHostPreflightReplaySaveFlagIntoNewGame(gs);
-      if (typeof window.risqueReplayClearTapeSidecar === "function") {
-        window.risqueReplayClearTapeSidecar();
-      }
-      if (typeof window.risqueSessionDiskInvalidateCache === "function") {
-        window.risqueSessionDiskInvalidateCache();
-      }
-      if (typeof window.risqueClearStoredSessionForNewGame === "function") {
-        window.risqueClearStoredSessionForNewGame();
-      }
-      if (!skipPersist) {
-        try {
-          localStorage.setItem("gameState", JSON.stringify(gs));
-        } catch (eLsOv) {
-          elError.textContent =
-            "Could not save roster (browser storage full or blocked). Free space or clear site data, then try again.";
-          onLog("Login failed: localStorage " + (eLsOv && eLsOv.message ? eLsOv.message : String(eLsOv)));
-          return;
+      commitNewGameLoginAfterRosterOk(filled, {
+        legacyNext: legacyNext,
+        redirectDelayMs: redirectDelayMs,
+        skipPersist: skipPersist,
+        onLoginSuccess: onLoginSuccess,
+        onLog: onLog,
+        elError: elError,
+        welcomeText: welcomeText,
+        loginButton: loginButton,
+        fadeRoot: overlay,
+        loginContainer: loginContainer,
+        randomOrderBtn: randomOrderLegacy,
+        loadButton: loadButton,
+        overlay: overlay,
+        removeResizeListener: function () {
+          window.removeEventListener("resize", onResize);
         }
-      }
-      if (typeof window.risqueHostReplaceShellGameState === "function") {
-        window.risqueHostReplaceShellGameState(gs);
-      }
-      persistLastPlayerNames(filled);
-      onLog("Login OK, redirecting to " + legacyNext, { players: names });
-      welcomeText.classList.add("fade-out");
-      loginButton.classList.add("fade-out");
-      Array.prototype.forEach.call(overlay.querySelectorAll(".risque-login-preset-slot"), function (b) {
-        b.classList.add("fade-out");
       });
-      if (randomOrderLegacy) randomOrderLegacy.classList.add("fade-out");
-      loadButton.classList.add("fade-out");
-      Array.prototype.forEach.call(overlay.querySelectorAll(".login-doc-button"), function (b) {
-        b.classList.add("fade-out");
-      });
-      loginContainer.classList.add("fade-out");
-      window.removeEventListener("resize", onResize);
-      setTimeout(function () {
-        if (typeof onLoginSuccess === "function") {
-          mirrorPushGameStateBeforeLoginNavigate();
-          overlay.remove();
-          onLoginSuccess(gs);
-          return;
-        }
-        mirrorPushGameStateBeforeLoginNavigate();
-        navigateGameHtmlPreferSoft(legacyNext);
-      }, redirectDelayMs);
     });
 
     loadButton.addEventListener("click", function () {

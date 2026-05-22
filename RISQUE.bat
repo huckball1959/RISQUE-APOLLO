@@ -1,11 +1,6 @@
 @echo off
 setlocal
-REM ============================================================================
-REM  RISQUE-GEMINI — launcher entry (double-click). Delegates to scripts\RISQUE.ps1:
-REM  flat save folder, risque-launcher-paths.json, menu (1) local file:// (2) hosted GEMINI URL.
-REM  Extra args pass through (e.g. -NoReplayDebug). See scripts\RISQUE.ps1 header.
-REM ============================================================================
-
+REM RISQUE-APOLLO — no menu; local file:// + X:\github\save (see scripts\APOLLO-LAUNCHER.bat).
 cd /d "%~dp0"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\RISQUE.ps1" %*
+call "%~dp0scripts\APOLLO-LAUNCHER.bat" %*
 exit /b %ERRORLEVEL%

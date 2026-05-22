@@ -4,7 +4,7 @@
   Loopback HTTP API so file:// RISQUE host can write SAVE without File System Access picker.
 
 .DESCRIPTION
-  GET /api/health, POST /api/write|read|list|delete-files|delete-prefix|restart-browser.
+  GET /api/health, POST /api/write|read|list|delete-files|delete-prefix|wipe-root|restart-browser.
   RISQUE.ps1 starts this in the background before opening Chromium when launching local file:// builds.
 
 .PARAMETER SaveRoot
@@ -101,7 +101,8 @@ while ($listener.IsListening) {
                 ok                     = $true
                 saveRoot               = $script:Root
                 supportsRestartBrowser = $true
-                diskServerApiVersion   = 2
+                supportsWipeRoot       = $true
+                diskServerApiVersion   = 3
             }
             continue
         }
@@ -192,6 +193,25 @@ while ($listener.IsListening) {
                 }
             }
             Send-RisqueDiskJson -Response $res -Object @{ ok = $true; removed = $removed }
+            continue
+        }
+
+        if ($apath -eq "/api/wipe-root") {
+            $removed = 0
+            if (Test-Path -LiteralPath $script:Root -PathType Container) {
+                Get-ChildItem -LiteralPath $script:Root -Force | ForEach-Object {
+                    try {
+                        Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop
+                        $removed++
+                    }
+                    catch {
+                    }
+                }
+            }
+            else {
+                New-Item -ItemType Directory -Path $script:Root -Force | Out-Null
+            }
+            Send-RisqueDiskJson -Response $res -Object @{ ok = $true; removed = $removed; saveRoot = $script:Root }
             continue
         }
 

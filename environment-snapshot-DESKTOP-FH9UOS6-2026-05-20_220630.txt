@@ -1,0 +1,116 @@
+=== RISQUE ENVIRONMENT SNAPSHOT ===
+Generated: 5/20/2026 10:06:30 PM
+Computer: DESKTOP-FH9UOS6
+User: huckb
+
+=== OS ===
+Caption: Microsoft Windows 10 Home
+Version: 10.0.19045 Build 19045
+Arch: 64-bit
+Last boot: 5/17/2026 10:24:08 PM
+
+=== CPU ===
+Name: Intel(R) Core(TM) i3-7100U CPU @ 2.40GHz
+Cores / threads: 2 / 4
+Max MHz: 2400
+
+=== RAM ===
+Total GB: 7.87
+Free GB: 2.48
+
+=== GPU ===
+GPU: Intel(R) HD Graphics 620 driver 27.20.100.9664
+
+=== Storage C: ===
+Free GB: 854.60 / 930.91
+Physical disk: Samsung SSD 870 EVO 1TB type=SSD sizeGB=932 health=Healthy
+Physical disk: SSK SSD Portable SSD type=Unspecified sizeGB=233 health=Healthy
+
+=== Power plan ===
+Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)
+
+=== Chrome ===
+Path: C:\Program Files\Google\Chrome\Application\chrome.exe
+FileVersion: 148.0.7778.168
+
+=== Edge ===
+Path: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+FileVersion: 148.0.3967.70
+
+=== RISQUE env vars ===
+RISQUE_DOWNLOAD_PATH = (not set)
+RISQUE_BROWSER = (not set, launcher uses auto)
+
+=== Save folders ===
+C:\RISQUE\SAVE: 0 files, 0.00 MB total
+C:\risque\save: 0 files, 0.00 MB total
+C:\RISQUE\save: 0 files, 0.00 MB total
+
+=== Loopback disk API (port 5599) ===
+Port 5599 LISTEN: yes (OwningProcess=4)
+Health GET failed: The remote server returned an error: (405) Method Not Allowed.
+
+=== Repo clones (game.html script fingerprints) ===
+--- C:\github\RISQUE-GEMINI ---
+  game.html modified: 5/20/2026 9:56:51 PM
+  has round-flush-disk-stills-2026-05-18d: True
+  has skip-turn-checkpoint-battle-stills-2026-05-18d: True
+  has mirror-debounce-round-flush-2026-05-18d: True
+--- C:\github\risque ---
+  game.html modified: 5/20/2026 9:56:59 PM
+  has round-flush-disk-stills-2026-05-18d: True
+  has skip-turn-checkpoint-battle-stills-2026-05-18d: True
+  has mirror-debounce-round-flush-2026-05-18d: True
+--- C:\github\RISQUE ---
+  game.html modified: 5/20/2026 9:56:59 PM
+  has round-flush-disk-stills-2026-05-18d: True
+  has skip-turn-checkpoint-battle-stills-2026-05-18d: True
+  has mirror-debounce-round-flush-2026-05-18d: True
+
+=== Launcher paths json ===
+--- C:\github\RISQUE-GEMINI\risque-launcher-paths.json ---
+{
+    "saveRoot":  "C:\\risque\\save",
+    "gameDir":  "C:\\github\\RISQUE-GEMINI",
+    "replayDir":  "C:\\risque\\save",
+    "stagingDir":  "C:\\risque\\save",
+    "emergencyDir":  "C:\\risque\\save",
+    "gameSubdir":  "C:\\risque\\save",
+    "logsDir":  "C:\\risque\\save",
+    "emergencyWatcherLog":  "C:\\risque\\save\\risque-emergency-watcher.log",
+    "profileHost":  "C:\\Users\\huckb\\AppData\\Local\\Temp\\risque-browser-profiles\\host",
+    "profilePublic":  "C:\\Users\\huckb\\AppData\\Local\\Temp\\risque-browser-profiles\\public",
+    "activeSessionStamp":  "",
+    "activeSessionGameDir":  "C:\\risque\\save",
+    "activeSessionReplayDir":  "C:\\risque\\save",
+    "archiveDir":  "C:\\risque\\save",
+    "archiveShortcut":  "",
+    "diskApiBase":  "http://127.0.0.1:5599",
+    "periodicBrowserRestartEveryRounds":  0,
+    "generatedAtUtc":  "2026-05-18T15:40:16.1151357Z",
+    "psVersion":  "5.1.19041.6456"
+}
+--- C:\github\risque\risque-launcher-paths.json ---
+{
+    "saveRoot":  "C:\\risque\\save",
+    "gameDir":  "C:\\github\\RISQUE",
+    "replayDir":  "C:\\risque\\save",
+    "stagingDir":  "C:\\risque\\save",
+    "emergencyDir":  "C:\\risque\\save",
+    "gameSubdir":  "C:\\risque\\save",
+    "logsDir":  "C:\\risque\\save",
+    "emergencyWatcherLog":  "C:\\risque\\save\\risque-emergency-watcher.log",
+    "profileHost":  "C:\\Users\\huckb\\AppData\\Local\\Temp\\risque-browser-profiles\\host",
+    "profilePublic":  "C:\\Users\\huckb\\AppData\\Local\\Temp\\risque-browser-profiles\\public",
+    "activeSessionStamp":  "",
+    "activeSessionGameDir":  "C:\\risque\\save",
+    "activeSessionReplayDir":  "C:\\risque\\save",
+    "archiveDir":  "C:\\risque\\save",
+    "archiveShortcut":  "",
+    "diskApiBase":  "http://127.0.0.1:5599",
+    "periodicBrowserRestartEveryRounds":  0,
+    "generatedAtUtc":  "2026-05-18T21:39:38.6785083Z",
+    "psVersion":  "5.1.19041.6456"
+}
+
+=== Stills manifest (if present) ===

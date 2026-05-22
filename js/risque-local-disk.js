@@ -168,6 +168,118 @@
     });
   };
 
+  function risqueDiskParseJsonResponse(r) {
+    return r
+      .json()
+      .catch(function () {
+        return null;
+      })
+      .then(function (j) {
+        return { status: r.status, ok: r.ok, body: j };
+      });
+  }
+
+  function risqueDiskRejectUnreachable(err) {
+    var msg = err && err.message ? String(err.message) : String(err);
+    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+      return new Error(
+        "Save helper not reachable at " +
+          (apiBase || "(not configured)") +
+          ". Close Chrome and run APOLLO-LAUNCHER.bat again."
+      );
+    }
+    return err instanceof Error ? err : new Error(msg);
+  }
+
+  window.risqueLocalDiskFetchHealth = function () {
+    if (!apiBase) {
+      return Promise.resolve(null);
+    }
+    return fetch(apiBase + "/api/health", { cache: "no-store" })
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .catch(function () {
+        return null;
+      });
+  };
+
+  /** Recursive list + delete-files when /api/wipe-root is missing (older save helper). */
+  function risqueLocalDiskWipeSaveRootViaList(dirRel) {
+    var d = String(dirRel || "")
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
+    return window.risqueLocalDiskListDir(d).then(function (j) {
+      if (!j || !j.ok) {
+        throw new Error("Save folder list failed");
+      }
+      var entries = j.entries || [];
+      var files = [];
+      var dirs = [];
+      entries.forEach(function (ent) {
+        if (!ent || !ent.name) return;
+        var rel = d ? d + "/" + ent.name : ent.name;
+        if (ent.kind === "directory") dirs.push(rel);
+        else files.push(rel);
+      });
+      var removed = 0;
+      var chain = Promise.resolve();
+      if (files.length) {
+        chain = window.risqueLocalDiskDeleteFiles(files).then(function (del) {
+          removed += del && del.removed != null ? del.removed : files.length;
+        });
+      }
+      return chain.then(function () {
+        return Promise.all(
+          dirs.map(function (sub) {
+            return risqueLocalDiskWipeSaveRootViaList(sub);
+          })
+        ).then(function (subs) {
+          subs.forEach(function (s) {
+            if (s && s.removed != null) removed += s.removed;
+          });
+          return { ok: true, removed: removed, method: "list-delete" };
+        });
+      });
+    });
+  }
+
+  window.risqueLocalDiskWipeSaveRoot = function () {
+    if (!apiBase) {
+      return Promise.reject(
+        new Error("Save helper URL not set — close Chrome and run APOLLO-LAUNCHER.bat again.")
+      );
+    }
+    return window
+      .risqueLocalDiskFetchHealth()
+      .then(function (health) {
+        if (!health || !health.ok) {
+          throw new Error(
+            "Save helper not running at " + apiBase + " — close Chrome and run APOLLO-LAUNCHER.bat again."
+          );
+        }
+        if (health.supportsWipeRoot !== true) {
+          return risqueLocalDiskWipeSaveRootViaList("");
+        }
+        return post("/api/wipe-root", {}).then(risqueDiskParseJsonResponse).then(function (parsed) {
+          if (parsed.ok && parsed.body && parsed.body.ok !== false) {
+            return parsed.body;
+          }
+          var errDetail =
+            (parsed.body && parsed.body.error) ||
+            (parsed.status === 404 ? "wipe-root not supported" : "HTTP " + parsed.status);
+          if (parsed.status === 404 || errDetail === "not found" || errDetail === "wipe-root not supported") {
+            return risqueLocalDiskWipeSaveRootViaList("");
+          }
+          throw new Error("risque-disk wipe-root: " + errDetail);
+        });
+      })
+      .catch(function (err) {
+        return Promise.reject(risqueDiskRejectUnreachable(err));
+      });
+  };
+
   window.risqueLocalDiskDeletePrefix = function (dirRel, prefix) {
     var d = String(dirRel || "").replace(/\\/g, "/").replace(/^\/+/, "");
     return post("/api/delete-prefix", { dir: d, prefix: String(prefix || "") }).then(function (r) {

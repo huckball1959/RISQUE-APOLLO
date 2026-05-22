@@ -81,8 +81,24 @@
   var __risqueRoundAutosavePickerBusy = false;
   /** Tab session: user skipped folder picker (use browser downloads for round exports). */
   var ROUND_AUTOSAVE_FOLDER_PROMPT_SESSION_KEY = "risqueAutosaveFolderPromptDismissedTab";
-  /** Documented Windows layout; browsers cannot bind this path without one folder pick. */
-  var RISQUE_DEFAULT_WINDOWS_SAVE_FOLDER = "C:\\risque\\save";
+  /** Lab portable layout: file:// under X:\github\… → X:\github\save; else legacy C:\risque\save. */
+  window.risqueInferDefaultWindowsSaveFolder = function risqueInferDefaultWindowsSaveFolder() {
+    try {
+      var href = String(window.location.href || "");
+      var m = href.match(/^file:\/\/\/([A-Za-z]):\//);
+      if (m) {
+        var drive = m[1].toUpperCase();
+        var decoded = decodeURIComponent(href);
+        if (/[\/\\]github[\/\\]/i.test(decoded)) {
+          return drive + ":\\github\\save";
+        }
+      }
+    } catch (eInf) {
+      /* ignore */
+    }
+    return "C:\\risque\\save";
+  };
+  var RISQUE_DEFAULT_WINDOWS_SAVE_FOLDER = window.risqueInferDefaultWindowsSaveFolder();
 
   function sidecarIndexRead() {
     var o = tryParse(localStorage.getItem(SIDECAR_INDEX_KEY) || "{}");
@@ -380,6 +396,79 @@
     }
   }
   window.risqueClearPostReceiveNavigationArtifacts = clearPostReceiveNavigationArtifacts;
+
+  /**
+   * Host map recovery: cardplay→income freeze, soft-nav, or slow paint can leave #canvas hidden or
+   * a body-level clone covering markers. Idempotent — safe on every phase change / refreshVisuals.
+   */
+  function risqueRestoreHostMapCanvasFromPhaseArtifacts() {
+    if (window.risqueDisplayIsPublic) return;
+    try {
+      var holds = document.querySelectorAll(
+        "#risque-income-transition-hold, [data-risque-transition-freeze='1']"
+      );
+      for (var hi = 0; hi < holds.length; hi += 1) {
+        var hEl = holds[hi];
+        if (hEl && hEl.parentNode) hEl.parentNode.removeChild(hEl);
+      }
+    } catch (eHold) {
+      /* ignore */
+    }
+    var canvas = document.getElementById("canvas");
+    if (!canvas) return;
+    try {
+      canvas.style.visibility = "";
+      canvas.style.opacity = "";
+      canvas.style.transition = "";
+      canvas.removeAttribute("aria-hidden");
+      canvas.classList.add("visible");
+      var stageImage = canvas.querySelector(".stage-image");
+      var svgOverlay = canvas.querySelector(".svg-overlay");
+      if (stageImage) stageImage.classList.add("visible");
+      if (svgOverlay) svgOverlay.classList.add("visible");
+    } catch (eCv) {
+      /* ignore */
+    }
+    try {
+      var uiOv = document.querySelector(".ui-overlay");
+      if (uiOv) uiOv.classList.add("visible");
+    } catch (eUi) {
+      /* ignore */
+    }
+  }
+  window.risqueRestoreHostMapCanvasFromPhaseArtifacts = risqueRestoreHostMapCanvasFromPhaseArtifacts;
+
+  /** Host-only: restore canvas chrome then paint territories (double rAF for slow GPUs / dual-head). */
+  function risqueRepaintHostMapSoon(gs) {
+    if (window.risqueDisplayIsPublic || !gs || !window.gameUtils) return;
+    risqueRestoreHostMapCanvasFromPhaseArtifacts();
+    function paintOnce() {
+      try {
+        if (typeof window.gameUtils.validateGameState === "function" && !window.gameUtils.validateGameState(gs)) {
+          return;
+        }
+        window.gameUtils.initGameView();
+        if (typeof resizeRuntimeCanvas === "function") {
+          resizeRuntimeCanvas();
+        } else if (typeof window.gameUtils.resizeCanvas === "function") {
+          window.gameUtils.resizeCanvas();
+        }
+        window.gameUtils.renderTerritories(null, gs);
+        window.gameUtils.renderStats(gs);
+      } catch (ePaint) {
+        /* ignore */
+      }
+    }
+    paintOnce();
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        risqueRestoreHostMapCanvasFromPhaseArtifacts();
+        paintOnce();
+      });
+    });
+  }
+  window.risqueRepaintHostMapSoon = risqueRepaintHostMapSoon;
+
   /*
    * Public board must follow mirrored gameState.phase only. A stale ?phase=attack (or any host URL
    * copied into this tab) would mount the wrong UI (e.g. attack while state is deploy).
@@ -433,6 +522,8 @@
   var DEFAULT_LOAD_AFTER_LOGIN = "game.html?phase=cardplay&legacyNext=income.html";
   var loginLoadRedirect = query.get("loginLoadRedirect") || DEFAULT_LOAD_AFTER_LOGIN;
   var loginMounted = false;
+  var loginLabWipeGateDone = false;
+  var RISQUE_LAB_SAVE_WIPE_DONE_KEY = "risqueLabSaveFolderWipeDoneTab_v2";
   /** Auto-remove the green Wayback folder badge after SHOW_WAYBACK_GREEN_BADGE_MS; cleared when leaving login or when not connected. */
   var __risqueWaybackGreenBadgeHideTimer = null;
   /** After green badge auto-hides, skip re-creating it on every refreshVisuals until login ends or folder reads disconnected. */
@@ -462,6 +553,7 @@
   var BOARD_CORNER_TOOLS_VERSION = "25";
   /** Default + last-used autosave policy for new sessions (localStorage). */
   var RISQUE_AUTOSAVE_TIER_PREF_KEY = "risqueAutosaveTierPreference";
+  var RISQUE_AUTOSAVE_TIER_DEFAULT = "battle_stills";
   var RISQUE_AUTOSAVE_TIERS = { safe_fun: 1, safe_lean: 1, safe_no_replay: 1, manual: 1, battle_stills: 1 };
 
   /** Monotonic per-session index for emergency saves and turn checkpoints (stored on gameState). */
@@ -947,6 +1039,34 @@
       }
     } catch (eEns) {}
     try {
+      if (typeof window.risqueCheapReplayDetachFromGameState === "function") {
+        window.risqueCheapReplayDetachFromGameState(live);
+      }
+    } catch (eCrBoot) {
+      /* ignore */
+    }
+    try {
+      var tierBoot =
+        live.risqueAutosaveTier != null ? String(live.risqueAutosaveTier).trim() : "";
+      if (
+        (tierBoot === "battle_stills" || tierBoot === "host_ultra") &&
+        typeof window.risqueBuildBudgetReplayPackFromCheapStills === "function"
+      ) {
+        var budgetBoot = window.risqueBuildBudgetReplayPackFromCheapStills(live);
+        if (
+          budgetBoot &&
+          budgetBoot.format === "risque-replay-v1" &&
+          budgetBoot.tape &&
+          Array.isArray(budgetBoot.tape.events) &&
+          budgetBoot.tape.events.length >= 2
+        ) {
+          return JSON.stringify(budgetBoot);
+        }
+      }
+    } catch (eBudgetBoot) {
+      /* fall through */
+    }
+    try {
       if (typeof window.risqueBuildSessionReplayExport !== "function") return null;
       var sp = window.risqueBuildSessionReplayExport(live);
       if (!sp || sp.format !== "risque-replay-v1" || !sp.tape || !Array.isArray(sp.tape.events) || !sp.tape.events.length) {
@@ -1120,11 +1240,39 @@
             if (typeof window.risquePersistHostGameState === "function") {
               window.risquePersistHostGameState();
             }
+            if (typeof window.risqueCheapReplayDetachFromGameState === "function") {
+              try {
+                window.risqueCheapReplayDetachFromGameState(gsReplay);
+              } catch (eCrWb) {
+                /* ignore */
+              }
+            }
             var sessionBoot = risqueTryBuildWaybackBootstrapSessionJson(gsReplay);
-            return (sessionBoot
-              ? Promise.resolve(sessionBoot)
-              : risqueBuildWaybackPackJsonString(gsReplay)
-            ).then(function (json) {
+            var tierWb =
+              gsReplay.risqueAutosaveTier != null ? String(gsReplay.risqueAutosaveTier).trim() : "";
+            var bootChain;
+            if (sessionBoot) {
+              bootChain = Promise.resolve(sessionBoot);
+            } else if (
+              (tierWb === "battle_stills" || tierWb === "host_ultra") &&
+              typeof window.risqueBuildBudgetReplayPackFromDiskStillsAsync === "function"
+            ) {
+              bootChain = window
+                .risqueBuildBudgetReplayPackFromDiskStillsAsync(gsReplay)
+                .then(function (diskPack) {
+                  if (diskPack && diskPack.format === "risque-replay-v1") {
+                    try {
+                      return JSON.stringify(diskPack);
+                    } catch (eDiskJ) {
+                      return null;
+                    }
+                  }
+                  return risqueBuildWaybackPackJsonString(gsReplay);
+                });
+            } else {
+              bootChain = risqueBuildWaybackPackJsonString(gsReplay);
+            }
+            return bootChain.then(function (json) {
               var toStore = json || risqueSnapshotWaybackBootstrapJson(gsReplay);
               if (
                 !toStore &&
@@ -1561,6 +1709,77 @@
     return out;
   }
 
+  /** After quota pressure, always omit replay blobs from STORAGE_KEY for the rest of this tab. */
+  window.__risqueQuotaPressureLite = false;
+
+  function risqueReleaseLocalStorageQuotaPressure() {
+    var keysToDrop = [
+      LOG_KEY,
+      "risqueReplayTapeSidecar",
+      SIDECAR_INDEX_KEY,
+      ROUND_AUTOSAVE_KEY
+    ];
+    var ki;
+    for (ki = 0; ki < keysToDrop.length; ki += 1) {
+      try {
+        localStorage.removeItem(keysToDrop[ki]);
+      } catch (eDrop) {
+        /* ignore */
+      }
+    }
+    try {
+      var rawGrace = localStorage.getItem(GRACE_SNAPSHOTS_STORAGE_KEY);
+      var graceArr = tryParse(rawGrace || "[]");
+      if (Array.isArray(graceArr) && graceArr.length > 8) {
+        localStorage.setItem(GRACE_SNAPSHOTS_STORAGE_KEY, JSON.stringify(graceArr.slice(-8)));
+      }
+    } catch (eGrace) {
+      try {
+        localStorage.removeItem(GRACE_SNAPSHOTS_STORAGE_KEY);
+      } catch (eGraceRm) {
+        /* ignore */
+      }
+    }
+    try {
+      var led = tryParse(localStorage.getItem(LEDGER_KEY) || "[]");
+      if (Array.isArray(led) && led.length > 80) {
+        localStorage.setItem(LEDGER_KEY, JSON.stringify(led.slice(-80)));
+      }
+    } catch (eLed) {
+      /* ignore */
+    }
+    try {
+      var mir = localStorage.getItem(PUBLIC_MIRROR_KEY);
+      if (mir && mir.length > 450000) {
+        localStorage.removeItem(PUBLIC_MIRROR_KEY);
+      }
+    } catch (eMir) {
+      /* ignore */
+    }
+    window.__risqueQuotaPressureLite = true;
+  }
+
+  function risqueShrinkGameStateJsonForStorage(key, value) {
+    if (key !== STORAGE_KEY || typeof value !== "string") return value;
+    try {
+      var parsed = JSON.parse(value);
+      if (!parsed || typeof parsed !== "object") return value;
+      if (typeof window.risqueReplayPruneOldestRoundBuckets === "function") {
+        window.risqueReplayPruneOldestRoundBuckets(parsed, 2);
+      }
+      var slim =
+        typeof window.risqueStripReplayFromGameStateClone === "function"
+          ? window.risqueStripReplayFromGameStateClone(parsed)
+          : risqueBuildEmergencyStorageState(parsed);
+      risqueApplyLsReplayLiteToPayload(slim);
+      return typeof window.risqueJsonStringifyGameStateForStorage === "function"
+        ? window.risqueJsonStringifyGameStateForStorage(slim)
+        : JSON.stringify(slim);
+    } catch (eShr) {
+      return value;
+    }
+  }
+
   function risqueTryWriteLocalStorageWithQuotaFallback(key, value) {
     try {
       localStorage.setItem(key, value);
@@ -1568,28 +1787,34 @@
     } catch (err) {
       if (!(err && (err.name === "QuotaExceededError" || err.code === 22))) return false;
     }
-    try {
-      var rawLogs = localStorage.getItem(LOG_KEY);
-      var logsArr = tryParse(rawLogs || "[]");
-      if (Array.isArray(logsArr) && logsArr.length > 40) {
-        localStorage.setItem(LOG_KEY, JSON.stringify(logsArr.slice(-40)));
-      } else {
-        localStorage.removeItem(LOG_KEY);
-      }
-    } catch (eTrim) {
-      try {
-        localStorage.removeItem(LOG_KEY);
-      } catch (eRm) {
-        /* ignore */
-      }
-    }
+    risqueReleaseLocalStorageQuotaPressure();
     try {
       localStorage.setItem(key, value);
       return true;
     } catch (errRetry) {
-      return false;
+      if (!(errRetry && (errRetry.name === "QuotaExceededError" || errRetry.code === 22))) return false;
     }
+    if (key === STORAGE_KEY) {
+      var shrunk = risqueShrinkGameStateJsonForStorage(key, value);
+      if (shrunk !== value) {
+        try {
+          localStorage.setItem(key, shrunk);
+          try {
+            console.warn(
+              "[RISQUE] localStorage full — saved lean gameState (replay omitted from disk; still in memory)."
+            );
+          } catch (eWarn) {
+            /* ignore */
+          }
+          return true;
+        } catch (errSlim) {
+          if (!(errSlim && (errSlim.name === "QuotaExceededError" || errSlim.code === 22))) return false;
+        }
+      }
+    }
+    return false;
   }
+  window.risqueTryWriteLocalStorageWithQuotaFallback = risqueTryWriteLocalStorageWithQuotaFallback;
 
   function risqueBuildEmergencyStorageState(forDisk) {
     var lite = JSON.parse(JSON.stringify(forDisk || {}));
@@ -1600,6 +1825,8 @@
     delete lite.risqueCheapReplayStills;
     delete lite.risqueCheapReplayBattleSeq;
     delete lite.risqueCheapReplayFrameSeq;
+    delete lite.risqueCombatLogTail;
+    return lite;
   }
 
   /**
@@ -1621,6 +1848,7 @@
   ];
   var __risqueLoggedLsReplayLite = false;
   function risqueLocalStorageReplayLiteEnabled() {
+    if (window.__risqueQuotaPressureLite) return true;
     if (typeof window.risqueLsReplayLiteEffective === "function") {
       return window.risqueLsReplayLiteEffective();
     }
@@ -1675,8 +1903,17 @@
     try {
       var gs = window.gameState;
       /* Ephemeral TV-only fields (e.g. name roulette) must not bloat host saves */
+      var tierMir =
+        gs && gs.risqueAutosaveTier != null ? String(gs.risqueAutosaveTier).trim() : "";
+      if (typeof window.risqueCheapReplayDetachFromGameState === "function") {
+        try {
+          window.risqueCheapReplayDetachFromGameState(gs);
+        } catch (eCrMir) {
+          /* ignore */
+        }
+      }
       var forDisk;
-      if (risqueLocalStorageReplayLiteEnabled()) {
+      if (risqueLocalStorageReplayLiteEnabled() || tierMir === "battle_stills" || tierMir === "host_ultra") {
         risqueMaybeLogLsReplayLiteOnce();
         forDisk =
           typeof window.risqueCloneGameStateOmitReplayKeys === "function"
@@ -1879,7 +2116,33 @@
     }
   };
 
-  window.risqueMirrorPushGameState = risqueMirrorPushGameStateSync;
+  var __risqueMirrorDebounceTimer = null;
+  var __risqueMirrorLastPushMs = 0;
+  function risqueMirrorPushGameStateEntry() {
+    if (window.risqueDisplayIsPublic) return;
+    if (!window.gameState) return;
+    var tierMir =
+      window.gameState.risqueAutosaveTier != null
+        ? String(window.gameState.risqueAutosaveTier).trim()
+        : "";
+    if (tierMir !== "battle_stills" && tierMir !== "host_ultra") {
+      risqueMirrorPushGameStateSync();
+      return;
+    }
+    var now = Date.now();
+    if (now - __risqueMirrorLastPushMs < 400) {
+      if (__risqueMirrorDebounceTimer) clearTimeout(__risqueMirrorDebounceTimer);
+      __risqueMirrorDebounceTimer = setTimeout(function () {
+        __risqueMirrorDebounceTimer = null;
+        __risqueMirrorLastPushMs = Date.now();
+        risqueMirrorPushGameStateSync();
+      }, 450);
+      return;
+    }
+    __risqueMirrorLastPushMs = now;
+    risqueMirrorPushGameStateSync();
+  }
+  window.risqueMirrorPushGameState = risqueMirrorPushGameStateEntry;
 
   window.risqueScheduleMirrorPush = function () {
     if (window.risqueDisplayIsPublic) return;
@@ -1941,6 +2204,40 @@
       }
     });
   }
+
+  /**
+   * Frequent phase updates (deal steps, deploy wheel): persist stripped gameState only — no replay
+   * sidecar, no TV mirror. Keeps localStorage under quota while the tape grows in RAM.
+   */
+  window.risqueWriteGameStateLocalStorageLite = function (stateOpt) {
+    if (window.risqueDisplayIsPublic) return false;
+    var gs = stateOpt && typeof stateOpt === "object" ? stateOpt : window.gameState;
+    if (!gs) return false;
+    var payload = gs;
+    try {
+      if (
+        risqueLocalStorageReplayLiteEnabled() &&
+        typeof window.risqueStripReplayFromGameStateClone === "function"
+      ) {
+        payload = window.risqueStripReplayFromGameStateClone(gs);
+      }
+      var diskJson =
+        typeof window.risqueJsonStringifyGameStateForStorage === "function"
+          ? window.risqueJsonStringifyGameStateForStorage(payload)
+          : JSON.stringify(payload);
+      if (!risqueTryWriteLocalStorageWithQuotaFallback(STORAGE_KEY, diskJson)) {
+        var emergency = risqueBuildEmergencyStorageState(payload);
+        var emergencyJson =
+          typeof window.risqueJsonStringifyGameStateForStorage === "function"
+            ? window.risqueJsonStringifyGameStateForStorage(emergency)
+            : JSON.stringify(emergency);
+        return risqueTryWriteLocalStorageWithQuotaFallback(STORAGE_KEY, emergencyJson);
+      }
+      return true;
+    } catch (eLite) {
+      return false;
+    }
+  };
 
   /** Host phases should call this after mutating state (save + TV mirror). */
   window.risquePersistHostGameState = function (stateOpt) {
@@ -6831,6 +7128,14 @@
     try {
       localStorage.setItem(LOG_KEY, JSON.stringify(logs));
     } catch (err) {
+      if (err && (err.name === "QuotaExceededError" || err.code === 22)) {
+        try {
+          window.__risqueQuotaPressureLite = true;
+          localStorage.removeItem(LOG_KEY);
+        } catch (eClr) {
+          /* ignore */
+        }
+      }
       console.warn("Log write skipped:", err);
     }
   }
@@ -7045,6 +7350,12 @@
     if (!Array.isArray(s.risqueLuckySessionRoster)) {
       s.risqueLuckySessionRoster = [];
     }
+    if (
+      window.gameUtils &&
+      typeof window.gameUtils.clearStaleConquestCardplayFieldsUnlessChain === "function"
+    ) {
+      window.gameUtils.clearStaleConquestCardplayFieldsUnlessChain(s);
+    }
     /* Old saves: rebuild roster from turn order, current players, and ledger (eliminated names). */
     if (!s.risqueLuckySessionRoster.length) {
       var seenRo = {};
@@ -7099,7 +7410,14 @@
       } catch (eTierLs) {
         tierRaw = "";
       }
-      if (!RISQUE_AUTOSAVE_TIERS[tierRaw]) tierRaw = "safe_lean";
+      if (!RISQUE_AUTOSAVE_TIERS[tierRaw]) {
+        tierRaw = RISQUE_AUTOSAVE_TIER_DEFAULT;
+        try {
+          localStorage.setItem(RISQUE_AUTOSAVE_TIER_PREF_KEY, tierRaw);
+        } catch (eTierSet) {
+          /* ignore */
+        }
+      }
       s.risqueAutosaveTier = tierRaw;
     } else {
       s.risqueAutosaveTier = tierRaw;
@@ -7232,12 +7550,20 @@
 
   function persistGracePhaseSnapshotsToStorage(arr) {
     if (window.risqueDisplayIsPublic || !Array.isArray(arr)) return;
+    if (window.__risqueQuotaPressureLite) return;
     try {
       localStorage.setItem(GRACE_SNAPSHOTS_STORAGE_KEY, JSON.stringify(arr));
     } catch (eQuota) {
       if (eQuota && (eQuota.name === "QuotaExceededError" || eQuota.code === 22)) {
+        try {
+          window.__risqueQuotaPressureLite = true;
+        } catch (eFlag) {
+          /* ignore */
+        }
         var a = arr.slice();
-        while (a.length > 2) {
+        var tries = 0;
+        while (a.length > 2 && tries < 4) {
+          tries += 1;
           a.shift();
           try {
             localStorage.setItem(GRACE_SNAPSHOTS_STORAGE_KEY, JSON.stringify(a));
@@ -7259,6 +7585,7 @@
   function recordGracePhaseStartWithPrev(rawPrevJson, nextGs) {
     if (window.risqueDisplayIsPublic || !nextGs || typeof nextGs !== "object") return;
     if (window.__risqueGraceRollbackActive) return;
+    if (window.__risqueQuotaPressureLite) return;
     try {
       var prev = rawPrevJson ? tryParse(rawPrevJson) : null;
       /* Replay playback rapidly writes many intermediate states (highlights/warpath/selection flashes).
@@ -7342,30 +7669,23 @@
       try {
         origSetItem.apply(this, arguments);
       } catch (eSet) {
-        if (key === STORAGE_KEY && eSet && eSet.name === "QuotaExceededError") {
-          try {
-            var rawL2 = this.getItem(LOG_KEY);
-            var la = tryParse(rawL2 || "[]");
-            if (Array.isArray(la) && la.length > 40) {
-              this.setItem(LOG_KEY, JSON.stringify(la.slice(-40)));
-            } else {
-              this.removeItem(LOG_KEY);
+        if (key === STORAGE_KEY && eSet && (eSet.name === "QuotaExceededError" || eSet.code === 22)) {
+          var valRetry = typeof val === "string" ? val : String(val);
+          if (risqueTryWriteLocalStorageWithQuotaFallback(STORAGE_KEY, valRetry)) {
+            if (!window.risqueDisplayIsPublic) {
+              try {
+                var nextGsRec = typeof val === "string" ? JSON.parse(val) : val;
+                recordGracePhaseStartWithPrev(rawPrev, nextGsRec);
+              } catch (eRec) {
+                /* ignore */
+              }
             }
-          } catch (eFree) {
-            try {
-              this.removeItem(LOG_KEY);
-            } catch (eRm) {
-              /* ignore */
-            }
+          } else {
+            console.warn("[RISQUE] gameState localStorage write failed after quota recovery");
           }
-          try {
-            origSetItem.apply(this, arguments);
-          } catch (eRetry) {
-            throw eRetry;
-          }
-        } else {
-          throw eSet;
+          return;
         }
+        throw eSet;
       }
       if (key === STORAGE_KEY && !window.risqueDisplayIsPublic) {
         try {
@@ -7533,33 +7853,50 @@
 
   function saveState(state) {
     function write() {
-      try {
-        if (typeof window.risqueReplayFlushTapeSidecarSchedule === "function") {
-          window.risqueReplayFlushTapeSidecarSchedule();
+      if (typeof window.risqueCheapReplayDetachFromGameState === "function") {
+        try {
+          window.risqueCheapReplayDetachFromGameState(state);
+        } catch (eCrSv) {
+          /* ignore */
         }
-      } catch (eFlSc) {
-        /* ignore */
+      }
+      var tierSave =
+        state && state.risqueAutosaveTier != null ? String(state.risqueAutosaveTier).trim() : "";
+      var skipSidecar = tierSave === "battle_stills" || tierSave === "host_ultra";
+      /* Debounce replay sidecar — sync stringify of a long tape blocked the UI (round 3+ campaign). */
+      if (!skipSidecar) {
+        try {
+          if (typeof window.risqueReplayScheduleTapeSidecarPersist === "function") {
+            window.risqueReplayScheduleTapeSidecarPersist(state);
+          } else if (typeof window.risqueReplayPersistTapeSidecar === "function") {
+            window.risqueReplayPersistTapeSidecar(state);
+          }
+        } catch (eReplaySidecar) {
+          /* ignore */
+        }
       }
       var payload = state;
-      try {
-        if (typeof window.risqueReplayPersistTapeSidecar === "function") {
-          window.risqueReplayPersistTapeSidecar(state);
-        }
-      } catch (eReplaySidecar) {
-        /* ignore */
-      }
       if (
-        risqueLocalStorageReplayLiteEnabled() &&
+        (skipSidecar || risqueLocalStorageReplayLiteEnabled()) &&
         typeof window.risqueStripReplayFromGameStateClone === "function"
       ) {
         payload = window.risqueStripReplayFromGameStateClone(state);
-        risqueMaybeLogLsReplayLiteOnce();
+        if (!skipSidecar) risqueMaybeLogLsReplayLiteOnce();
       }
       var diskJson =
         typeof window.risqueJsonStringifyGameStateForStorage === "function"
           ? window.risqueJsonStringifyGameStateForStorage(payload)
           : JSON.stringify(payload);
-      localStorage.setItem(STORAGE_KEY, diskJson);
+      if (!risqueTryWriteLocalStorageWithQuotaFallback(STORAGE_KEY, diskJson)) {
+        var emergency = risqueBuildEmergencyStorageState(payload);
+        var emergencyJson =
+          typeof window.risqueJsonStringifyGameStateForStorage === "function"
+            ? window.risqueJsonStringifyGameStateForStorage(emergency)
+            : JSON.stringify(emergency);
+        if (!risqueTryWriteLocalStorageWithQuotaFallback(STORAGE_KEY, emergencyJson)) {
+          throw new Error("QuotaExceededError");
+        }
+      }
     }
     function notifyStaging(s) {
       try {
@@ -7613,9 +7950,31 @@
         }
       }
       console.error("Unable to save gameState:", err);
+      try {
+        if (typeof window.gameUtils !== "undefined" && window.gameUtils.showError) {
+          window.gameUtils.showError(
+            "Browser storage is full — game continues in memory. Clear site data for this page or use SAVE to disk, then reload."
+          );
+        }
+      } catch (eToast) {
+        /* ignore */
+      }
       return false;
     }
   }
+  window.risqueSaveGameState = saveState;
+
+  /** Persist host state for phase navigation; never throws (income/deploy must advance even if disk is full). */
+  window.risquePersistGameStateForNavigation = function (gs) {
+    if (!gs || typeof gs !== "object") return false;
+    window.gameState = gs;
+    try {
+      return !!saveState(gs);
+    } catch (eNav) {
+      console.warn("[RISQUE] risquePersistGameStateForNavigation:", eNav);
+      return false;
+    }
+  };
 
   /** Turn on DD.json / rNpM.json disk tapes when the host has a real save target (folder or launcher disk). */
   function risqueReplayEnableDiskTapeExportsForWritableSaveRoot(optGameState) {
@@ -7773,9 +8132,21 @@
   function risqueMaybeHostLongSessionStaminaNotice(gs, completedRound) {
     if (!gs || window.risqueDisplayIsPublic) return;
     var tier = gs.risqueAutosaveTier != null ? String(gs.risqueAutosaveTier).trim() : "";
-    if (tier !== "safe_fun" && tier !== "safe_lean" && tier !== "safe_no_replay") return;
+    if (
+      tier !== "safe_fun" &&
+      tier !== "safe_lean" &&
+      tier !== "safe_no_replay" &&
+      tier !== "battle_stills" &&
+      tier !== "host_ultra"
+    ) {
+      return;
+    }
     var r = Math.max(0, Math.floor(Number(completedRound)) || 0);
-    if (r < 10) return;
+    if (tier === "battle_stills" || tier === "host_ultra") {
+      if (r < 5) return;
+    } else if (r < 10) {
+      return;
+    }
     var milestone = r === 10 || r === 12 || r === 15 || r === 18 || r === 20 || (r >= 25 && r % 5 === 0);
     if (!milestone) return;
     var key = "risqueLongSessionStaminaNotices";
@@ -7794,6 +8165,9 @@
       /* ignore */
     }
     var tierNote = tier === "safe_fun" ? " Tier 1 logs every turn (highest RAM use)." : "";
+    if (tier === "battle_stills" || tier === "host_ultra") {
+      tierNote = " Battle stills spill to disk each round — if sluggish, restart the browser after SAVE.";
+    }
     setBoardCornerMsg(
       "Round " +
         r +
@@ -7814,7 +8188,15 @@
    */
   window.risqueRoundAutosaveOnRoundComplete = function (gs, completedRound) {
     if (!gs || window.risqueDisplayIsPublic) return Promise.resolve();
-    if (gs.risqueAutosaveTier === "manual" || gs.risqueAutosaveTier === "battle_stills") return Promise.resolve();
+    if (gs.risqueAutosaveTier === "battle_stills" || gs.risqueAutosaveTier === "host_ultra") {
+      if (typeof window.risqueCheapReplayFlushRoundToDisk === "function") {
+        return Promise.resolve(window.risqueCheapReplayFlushRoundToDisk(gs)).catch(function () {
+          return false;
+        });
+      }
+      return Promise.resolve();
+    }
+    if (gs.risqueAutosaveTier === "manual") return Promise.resolve();
     if (typeof window.risqueReplayEnsureTapeSessionKey === "function") {
       try {
         window.risqueReplayEnsureTapeSessionKey(gs);
@@ -7864,6 +8246,13 @@
     if (!gs || window.risqueDisplayIsPublic) return Promise.resolve();
     if (gs.risqueAutosaveTier === "battle_stills") {
       if (gs.risqueGameWinAutosaved) return Promise.resolve();
+      if (typeof window.risqueCheapReplayDetachFromGameState === "function") {
+        try {
+          window.risqueCheapReplayDetachFromGameState(gs);
+        } catch (eCrWin) {
+          /* ignore */
+        }
+      }
       if (typeof window.risqueReplayEnsureTapeSessionKey === "function") {
         try {
           window.risqueReplayEnsureTapeSessionKey(gs);
@@ -7873,7 +8262,7 @@
       }
       var flushBs =
         typeof window.risqueCheapReplayFlushToDisk === "function"
-          ? Promise.resolve(window.risqueCheapReplayFlushToDisk(gs)).catch(function () {
+          ? Promise.resolve(window.risqueCheapReplayFlushToDisk(gs, { clearRam: true })).catch(function () {
               return false;
             })
           : Promise.resolve(false);
@@ -8166,6 +8555,338 @@
     }
   }
 
+  function removeLabSaveWipeOverlay() {
+    var el = document.getElementById("risque-lab-save-wipe");
+    if (el && el.parentNode) {
+      el.parentNode.removeChild(el);
+    }
+  }
+
+  function injectLabSaveWipeStylesOnce() {
+    var sid = "risque-lab-save-wipe-style";
+    if (document.getElementById(sid)) return;
+    var s = document.createElement("style");
+    s.id = sid;
+    s.textContent =
+      "#risque-lab-save-wipe{position:fixed;inset:0;z-index:1000002;margin:0;padding:24px;" +
+      "display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.78);" +
+      "font-family:Arial,Helvetica,sans-serif;box-sizing:border-box;}" +
+      "#risque-lab-save-wipe *{box-sizing:border-box;}" +
+      "#risque-lab-save-wipe .risque-ras-card{max-width:560px;width:100%;background:#111827;" +
+      "color:#e5e7eb;border:1px solid #334155;border-radius:12px;padding:20px 22px;" +
+      "box-shadow:0 12px 40px rgba(0,0,0,0.45);}" +
+      "#risque-lab-save-wipe .risque-ras-title{font-size:20px;font-weight:bold;margin:0 0 8px;color:#fff;}" +
+      "#risque-lab-save-wipe .risque-ras-body{font-size:14px;line-height:1.45;margin:0 0 14px;color:#cbd5e1;}" +
+      "#risque-lab-save-wipe .risque-ras-body strong{color:#fca5a5;}" +
+      "#risque-lab-save-wipe .risque-ras-hint{margin:0 0 16px;font-size:13px;line-height:1.45;color:#94a3b8;}" +
+      "#risque-lab-save-wipe .risque-ras-hint code{font-size:12px;color:#cbd5e1;}" +
+      "#risque-lab-save-wipe .risque-ras-actions{display:flex;flex-wrap:wrap;gap:10px;}" +
+      "#risque-lab-save-wipe button{font-size:15px;font-weight:bold;border-radius:8px;padding:10px 16px;" +
+      "cursor:pointer;border:none;}" +
+      "#risque-lab-save-wipe .risque-ras-primary{background:#2563eb;color:#fff;}" +
+      "#risque-lab-save-wipe .risque-ras-primary:hover{background:#1d4ed8;}" +
+      "#risque-lab-save-wipe .risque-ras-secondary{background:#374151;color:#e5e7eb;}" +
+      "#risque-lab-save-wipe .risque-ras-secondary:hover{background:#4b5563;}";
+    document.head.appendChild(s);
+  }
+
+  function risqueResolveLauncherSaveRootForLab() {
+    return Promise.resolve()
+      .then(function () {
+        if (typeof window.risqueFetchLauncherPathsJson === "function") {
+          return window.risqueFetchLauncherPathsJson();
+        }
+        return null;
+      })
+      .then(function (j) {
+        if (j && j.saveRoot) return String(j.saveRoot);
+        return RISQUE_DEFAULT_WINDOWS_SAVE_FOLDER;
+      })
+      .catch(function () {
+        return RISQUE_DEFAULT_WINDOWS_SAVE_FOLDER;
+      });
+  }
+
+  function risqueLabSaveWipeSessionDone() {
+    if (loginLabWipeGateDone) return true;
+    try {
+      return sessionStorage.getItem(RISQUE_LAB_SAVE_WIPE_DONE_KEY) === "1";
+    } catch (eSs) {
+      return false;
+    }
+  }
+
+  function risqueMarkLabSaveWipeSessionDone() {
+    loginLabWipeGateDone = true;
+    try {
+      sessionStorage.setItem(RISQUE_LAB_SAVE_WIPE_DONE_KEY, "1");
+    } catch (eSs) {
+      /* ignore */
+    }
+  }
+
+  function risqueIsLabLocalHostSession() {
+    try {
+      if (window.location.protocol === "file:") return true;
+    } catch (eProto) {
+      /* ignore */
+    }
+    try {
+      if (/[\/\\]github[\/\\]/i.test(String(RISQUE_DEFAULT_WINDOWS_SAVE_FOLDER || ""))) return true;
+    } catch (eGh) {
+      /* ignore */
+    }
+    if (typeof window.risqueLocalDiskIsConfigured === "function" && window.risqueLocalDiskIsConfigured()) {
+      return true;
+    }
+    if (typeof window.risqueLocalDiskIsActive === "function" && window.risqueLocalDiskIsActive()) {
+      return true;
+    }
+    return false;
+  }
+
+  function risqueShouldOfferLabSaveWipe() {
+    if (window.risqueDisplayIsPublic) return false;
+    if (risqueLabSaveWipeSessionDone()) return false;
+    if (document.getElementById("risque-lab-save-wipe")) return false;
+    if (typeof window.risqueLocalDiskWipeSaveRoot !== "function") return false;
+    try {
+      if (window.location.search.indexOf("labWipeSave=0") !== -1) return false;
+    } catch (eQ) {
+      /* ignore */
+    }
+    return risqueIsLabLocalHostSession();
+  }
+
+  /** Wait for launcher disk bootstrap (do not require active yet — probe may still be in flight at login boot). */
+  function risqueEnsureLabDiskReadyForWipe() {
+    var chain =
+      typeof window.risqueWaitForAutosaveFolderBoot === "function"
+        ? window.risqueWaitForAutosaveFolderBoot()
+        : Promise.resolve();
+    return chain.then(function () {
+      if (typeof window.risqueLocalDiskIsActive === "function" && window.risqueLocalDiskIsActive()) {
+        return true;
+      }
+      if (typeof window.risqueLocalDiskBootstrap !== "function") {
+        return false;
+      }
+      return window.risqueLocalDiskBootstrap();
+    });
+  }
+
+  function risqueMountLabSaveWipeOverlay(savePath, continueFn) {
+    injectLabSaveWipeStylesOnce();
+    removeLabSaveWipeOverlay();
+
+    var ov = document.createElement("div");
+    ov.id = "risque-lab-save-wipe";
+    ov.setAttribute("role", "dialog");
+    ov.setAttribute("aria-modal", "true");
+    ov.setAttribute("aria-label", "Clear save folder");
+    ov.innerHTML =
+      '<div class="risque-ras-card">' +
+      '<p class="risque-ras-title">Clear save folder</p>' +
+      '<p class="risque-ras-body">The contents of the save folder are about to be <strong>deleted</strong>:</p>' +
+      '<p class="risque-ras-hint"><code id="risque-lab-save-wipe-path"></code></p>' +
+      '<p class="risque-ras-body">Confirm once, then the login screen appears. This runs once per browser session.</p>' +
+      '<div class="risque-ras-actions">' +
+      '<button type="button" class="risque-ras-primary" id="risque-lab-save-wipe-continue">Continue — delete save folder</button>' +
+      '<button type="button" class="risque-ras-secondary" id="risque-lab-save-wipe-skip">Skip wipe this session</button>' +
+      "</div></div>";
+    document.body.appendChild(ov);
+    var pathEl = document.getElementById("risque-lab-save-wipe-path");
+    if (pathEl) pathEl.textContent = savePath;
+
+    function finishGate() {
+      removeLabSaveWipeOverlay();
+      risqueMarkLabSaveWipeSessionDone();
+      continueFn();
+    }
+
+    var skipBtn = document.getElementById("risque-lab-save-wipe-skip");
+    if (skipBtn) {
+      skipBtn.addEventListener("click", function () {
+        finishGate();
+      });
+    }
+
+    var goBtn = document.getElementById("risque-lab-save-wipe-continue");
+    if (!goBtn) {
+      finishGate();
+      return;
+    }
+    goBtn.addEventListener("click", function onWipeGo() {
+      goBtn.disabled = true;
+      if (skipBtn) skipBtn.disabled = true;
+      risqueEnsureLabDiskReadyForWipe()
+        .then(function () {
+          if (typeof window.risqueLocalDiskWipeSaveRoot !== "function") {
+            throw new Error("Disk wipe API unavailable");
+          }
+          return window.risqueLocalDiskWipeSaveRoot();
+        })
+        .then(function (res) {
+          removeLabSaveWipeOverlay();
+          var n = res && res.removed != null ? res.removed : 0;
+          var ready = document.createElement("div");
+          ready.id = "risque-lab-save-wipe";
+          ready.setAttribute("role", "dialog");
+          ready.setAttribute("aria-modal", "true");
+          ready.innerHTML =
+            '<div class="risque-ras-card">' +
+            '<p class="risque-ras-title">Save folder ready</p>' +
+            '<p class="risque-ras-body">Save folder has been set and is ready for the game to begin.</p>' +
+            '<p class="risque-ras-hint"><code>' +
+            savePath +
+            "</code>" +
+            (n ? " — cleared " + n + " item(s)." : " — folder was already empty.") +
+            "</p>" +
+            '<div class="risque-ras-actions">' +
+            '<button type="button" class="risque-ras-primary" id="risque-lab-save-wipe-ready">Show login</button>' +
+            "</div></div>";
+          document.body.appendChild(ready);
+          var beginBtn = document.getElementById("risque-lab-save-wipe-ready");
+          if (beginBtn) {
+            beginBtn.addEventListener("click", function () {
+              finishGate();
+            });
+          } else {
+            finishGate();
+          }
+          try {
+            logEvent("Lab save folder wiped", { path: savePath, removed: n });
+          } catch (eLog) {
+            /* ignore */
+          }
+        })
+        .catch(function (err) {
+          removeLabSaveWipeOverlay();
+          var errOv = document.createElement("div");
+          errOv.id = "risque-lab-save-wipe";
+          errOv.setAttribute("role", "dialog");
+          errOv.setAttribute("aria-modal", "true");
+          errOv.innerHTML =
+            '<div class="risque-ras-card">' +
+            '<p class="risque-ras-title">Could not clear save folder</p>' +
+            '<p class="risque-ras-body">' +
+            (err && err.message ? String(err.message) : String(err)) +
+            "</p>" +
+            '<p class="risque-ras-hint">Restart with APOLLO-LAUNCHER.bat so the disk helper reloads.</p>' +
+            '<div class="risque-ras-actions">' +
+            '<button type="button" class="risque-ras-primary" id="risque-lab-save-wipe-retry">Retry</button>' +
+            '<button type="button" class="risque-ras-secondary" id="risque-lab-save-wipe-skip-err">Skip wipe — show login</button>' +
+            "</div></div>";
+          document.body.appendChild(errOv);
+          var retryBtn = document.getElementById("risque-lab-save-wipe-retry");
+          if (retryBtn) {
+            retryBtn.addEventListener("click", function () {
+              removeLabSaveWipeOverlay();
+              goBtn.disabled = false;
+              if (skipBtn) skipBtn.disabled = false;
+              onWipeGo();
+            });
+          }
+          var skipErr = document.getElementById("risque-lab-save-wipe-skip-err");
+          if (skipErr) {
+            skipErr.addEventListener("click", function () {
+              finishGate();
+            });
+          }
+        });
+    });
+  }
+
+  /**
+   * Lab: wipe save folder once per tab before login UI. continueFn runs after user confirms + wipe (or skip).
+   */
+  window.risqueRunLabSaveFolderGate = function (continueFn) {
+    if (typeof continueFn !== "function") return;
+    if (risqueLabSaveWipeSessionDone()) {
+      continueFn();
+      return;
+    }
+    if (!risqueShouldOfferLabSaveWipe()) {
+      risqueMarkLabSaveWipeSessionDone();
+      continueFn();
+      return;
+    }
+
+    risqueEnsureLabDiskReadyForWipe()
+      .then(function () {
+        return risqueResolveLauncherSaveRootForLab();
+      })
+      .then(function (savePath) {
+        risqueMountLabSaveWipeOverlay(savePath, continueFn);
+      })
+      .catch(function () {
+        risqueResolveLauncherSaveRootForLab().then(function (savePath) {
+          risqueMountLabSaveWipeOverlay(savePath, continueFn);
+        });
+      });
+  };
+
+  window.risqueMaybeWipeSaveFolderBeforeNewGame = window.risqueRunLabSaveFolderGate;
+
+  function mountLoginPhaseUi(state, notice) {
+    loginMounted = true;
+    appEl.innerHTML = "";
+    if (notice) {
+      logEvent("Runtime boot notice", { notice: notice });
+    }
+    var uioLogin = document.getElementById("ui-overlay");
+    if (uioLogin) {
+      window.risquePhases.login.mount(uioLogin, {
+        useHud: true,
+        legacyNext: loginLegacyNext,
+        loadRedirect: loginLoadRedirect,
+        initialLoginFormMirror: state.risquePublicLoginFormMirror,
+        onLog: function (msg, data) {
+          logEvent(msg, data);
+        }
+      });
+    } else {
+      logEvent("Login: no ui-overlay; using full-screen overlay");
+      window.risquePhases.login.mount(document.body, {
+        legacyNext: loginLegacyNext,
+        loadRedirect: loginLoadRedirect,
+        onLog: function (msg, data) {
+          logEvent(msg, data);
+        }
+      });
+    }
+    if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          window.risqueMirrorPushGameState();
+        });
+      });
+    }
+    scheduleRisqueAutoPublicFromQueryOnce();
+  }
+
+  function tryShowLoginAfterLabSaveGate(state, notice) {
+    if (loginMounted) return;
+    if (
+      !window.risquePhases ||
+      !window.risquePhases.login ||
+      typeof window.risquePhases.login.mount !== "function"
+    ) {
+      return;
+    }
+    if (risqueLabSaveWipeSessionDone()) {
+      mountLoginPhaseUi(state, notice);
+      return;
+    }
+    if (typeof window.risqueRunLabSaveFolderGate !== "function") {
+      mountLoginPhaseUi(state, notice);
+      return;
+    }
+    window.risqueRunLabSaveFolderGate(function () {
+      mountLoginPhaseUi(state, notice);
+    });
+  }
+
   function injectAutosaveConfigStylesOnce() {
     var sid = "risque-autosave-config-setup-style";
     if (document.getElementById(sid)) return;
@@ -8215,7 +8936,7 @@
         cur = "";
       }
     }
-    if (!RISQUE_AUTOSAVE_TIERS[cur]) cur = "safe_lean";
+    if (!RISQUE_AUTOSAVE_TIERS[cur]) cur = RISQUE_AUTOSAVE_TIER_DEFAULT;
     function chk(val) {
       return cur === val ? " checked" : "";
     }
@@ -8267,11 +8988,10 @@
       '<input type="radio" name="risque-autosave-tier" value="battle_stills"' +
       chk("battle_stills") +
       ">" +
-      '<span class="risque-ac-opt-text"><span class="risque-ac-opt-title">5 · Battle stills (no autosave)</span>' +
+      '<span class="risque-ac-opt-text"><span class="risque-ac-opt-title">5 · Battle stills (lean replay)</span>' +
       "<span class=\"risque-ac-opt-desc\">" +
-        "<strong>No</strong> per-round game JSON or replay tape on disk during play. The host keeps compact board snapshots in memory at <strong>phase boundaries</strong> (deal, opening deploy, each turn deploy, end of attack phase, end of reinforce). " +
-        "<strong>SAVE + REPLAY</strong> (or SAVE with replay sidecar) writes the usual game JSON plus a <strong>budget</strong> <code>*-replay.json</code> (deal through now, one frame per phase, plus a mid-phase tail if the board moved since the last still). " +
-        "At <strong>game end</strong>, with a connected save folder, frames also flush to the session <strong>REPLAY</strong> folder as <code>rqwb-still-*.json</code> + manifest; Wayback plays those at <strong>1 second per frame</strong> with round + phase captions.</span></span>" +
+        "<strong>No</strong> per-round game JSON or granular replay tape during play. Replay is a <strong>map slideshow</strong>: one frame after deal, then one frame per <strong>battle outcome</strong> (colors + troop counts, captions like “Nooch conquers Mickey”). " +
+        "<strong>SAVE + REPLAY</strong> writes game JSON plus budget <code>*-replay.json</code>. At <strong>game end</strong>, stills flush to <strong>REPLAY</strong> (<code>rqwb-still-*.json</code> + manifest). Public Wayback advances ~1 second per frame — no dice animation.</span></span>" +
       "</label></li>" +
       "</ul>" +
       '<div class="risque-ras-actions">' +
@@ -8283,8 +9003,8 @@
     document.body.appendChild(ov);
     function readSelectedTier() {
       var r = ov.querySelector('input[name="risque-autosave-tier"]:checked');
-      var t = r && r.value ? String(r.value) : "safe_lean";
-      return RISQUE_AUTOSAVE_TIERS[t] ? t : "safe_lean";
+      var t = r && r.value ? String(r.value) : RISQUE_AUTOSAVE_TIER_DEFAULT;
+      return RISQUE_AUTOSAVE_TIERS[t] ? t : RISQUE_AUTOSAVE_TIER_DEFAULT;
     }
     function applyTierToState(tier) {
       try {
@@ -8424,7 +9144,9 @@
         '<p class="risque-ras-body">You opened RISQUE from local files. Autosave will export JSON backups to your browser download folder after each completed round. ' +
         "To save directly into a chosen folder, run RISQUE from localhost/https instead. " +
         "<strong>Every reload or hard refresh (Ctrl+F5)</strong> asks again for this session.</p>" +
-        '<p class="risque-ras-hint">Tip: run <code>RISQUE.bat</code> from the repo folder so downloads default to <code>C:\\risque\\save</code>, then use <strong>Choose folder</strong> once for silent checkpoints.</p>' +
+        '<p class="risque-ras-hint">Tip: run <code>APOLLO-LAUNCHER.bat</code> (or <code>RISQUE.bat</code>) so downloads default to <code>' +
+          RISQUE_DEFAULT_WINDOWS_SAVE_FOLDER +
+          '</code>, then use <strong>Choose folder</strong> once for silent checkpoints.</p>' +
         '<div class="risque-ras-actions">' +
         '<button type="button" class="risque-ras-primary" id="risque-ras-local-continue">Continue</button>' +
         "</div>" +
@@ -8584,7 +9306,7 @@
           if (didNav) return null;
         if (typeof window.risqueLocalDiskIsActive === "function" && window.risqueLocalDiskIsActive()) {
           try {
-            setBoardCornerMsg("Autosave: launcher paths → flat folder (default C:\\risque\\save).");
+            setBoardCornerMsg("Autosave: launcher paths → flat folder (default " + RISQUE_DEFAULT_WINDOWS_SAVE_FOLDER + ").");
           } catch (eMsgL) {
             /* ignore */
           }
@@ -9368,8 +10090,31 @@
         /* ignore */
       }
     }
+    if (typeof window.risqueCheapReplayDetachFromGameState === "function") {
+      try {
+        if (window.gameState) window.risqueCheapReplayDetachFromGameState(window.gameState);
+        if (state) window.risqueCheapReplayDetachFromGameState(state);
+      } catch (eCrDet) {
+        /* ignore */
+      }
+    }
     window.gameState = state;
+    if (typeof window.risqueCheapReplayDetachFromGameState === "function" && window.gameState) {
+      try {
+        window.risqueCheapReplayDetachFromGameState(window.gameState);
+      } catch (eCrDet2) {
+        /* ignore */
+      }
+    }
     risqueEnsurePhaseIncomeEntryVeilFromStorage(state);
+    if (
+      !window.risqueDisplayIsPublic &&
+      state &&
+      typeof state === "object" &&
+      String(state.phase || "") !== "login"
+    ) {
+      risqueRestoreHostMapCanvasFromPhaseArtifacts();
+    }
     if (!window.risqueDisplayIsPublic && state && typeof state === "object") {
       var phClear = String(state.phase || "");
       if (
@@ -9763,12 +10508,29 @@
     }
   }
 
-  /** Continental conquer (?phase=con-cardplay): runtime cardplay HUD + default next phase con-income. */
+  /** Continental conquer (?phase=con-cardplay): runtime cardplay HUD; income target follows active chain. */
   function risqueBootMountRuntimeCardplayContinental() {
+    var gsBoot = window.gameState;
+    if (
+      gsBoot &&
+      window.gameUtils &&
+      typeof window.gameUtils.clearStaleConquestCardplayFieldsUnlessChain === "function"
+    ) {
+      window.gameUtils.clearStaleConquestCardplayFieldsUnlessChain(gsBoot);
+    }
+    var defaultCardplayNext = "game.html?phase=income";
+    if (
+      gsBoot &&
+      window.gameUtils &&
+      typeof window.gameUtils.isRisqueConquestIncomeChain === "function" &&
+      window.gameUtils.isRisqueConquestIncomeChain(gsBoot)
+    ) {
+      defaultCardplayNext = "game.html?phase=con-income";
+    }
     var ln =
       legacyNext != null && String(legacyNext).trim() !== ""
         ? legacyNext
-        : "game.html?phase=con-income";
+        : defaultCardplayNext;
     risqueMountCardplayShellSameDocument({ cardplayLegacyNext: ln });
     if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
       window.risqueMirrorPushGameState();
@@ -9949,16 +10711,7 @@
       delete window.__risqueSuppressHostMapRedraw;
     } catch (eS) {}
 
-    var fh = document.getElementById("risque-income-transition-hold");
-    if (fh && fh.parentNode) fh.parentNode.removeChild(fh);
-    var cvs = document.getElementById("canvas");
-    if (cvs) {
-      try {
-        cvs.style.visibility = "";
-        cvs.style.transition = "";
-        cvs.removeAttribute("aria-hidden");
-      } catch (eCv) {}
-    }
+    risqueRestoreHostMapCanvasFromPhaseArtifacts();
 
     try {
       clearPostReceiveNavigationArtifacts("risqueNavigateGameHtmlSoft");
@@ -10590,42 +11343,7 @@
     }
     if (state.phase === "login") {
       refreshVisuals(notice);
-      if (!loginMounted && window.risquePhases && window.risquePhases.login && typeof window.risquePhases.login.mount === "function") {
-        loginMounted = true;
-        appEl.innerHTML = "";
-        if (notice) {
-          logEvent("Runtime boot notice", { notice: notice });
-        }
-        var uioLogin = document.getElementById("ui-overlay");
-        if (uioLogin) {
-          window.risquePhases.login.mount(uioLogin, {
-            useHud: true,
-            legacyNext: loginLegacyNext,
-            loadRedirect: loginLoadRedirect,
-            initialLoginFormMirror: state.risquePublicLoginFormMirror,
-            onLog: function (msg, data) {
-              logEvent(msg, data);
-            }
-          });
-        } else {
-          logEvent("Login: no ui-overlay; using full-screen overlay");
-          window.risquePhases.login.mount(document.body, {
-            legacyNext: loginLegacyNext,
-            loadRedirect: loginLoadRedirect,
-            onLog: function (msg, data) {
-              logEvent(msg, data);
-            }
-          });
-        }
-        if (!window.risqueDisplayIsPublic && typeof window.risqueMirrorPushGameState === "function") {
-          requestAnimationFrame(function () {
-            requestAnimationFrame(function () {
-              window.risqueMirrorPushGameState();
-            });
-          });
-        }
-        scheduleRisqueAutoPublicFromQueryOnce();
-      }
+      tryShowLoginAfterLabSaveGate(state, notice);
       return;
     }
     loginMounted = false;
@@ -11960,7 +12678,9 @@
       '<div class="risque-board-corner-bottom" role="navigation" aria-label="Documentation, replay, autosave">' +
       '<button type="button" id="risque-board-manual" class="risque-board-op-btn">MANUAL</button>' +
       '<button type="button" id="risque-board-help" class="risque-board-op-btn">HELP</button>' +
-      '<button type="button" id="risque-board-replay-machine" class="risque-board-op-btn risque-board-op-btn--hide-with-top" title="Open Wayback in the control panel (no pop-up). Uses in-memory tape + connected save folder (default C:\\risque\\save).">REPLAY</button>' +
+      '<button type="button" id="risque-board-replay-machine" class="risque-board-op-btn risque-board-op-btn--hide-with-top" title="Open Wayback in the control panel (no pop-up). Uses in-memory tape + connected save folder (default ' +
+        RISQUE_DEFAULT_WINDOWS_SAVE_FOLDER +
+        ').">REPLAY</button>' +
       '<button type="button" id="risque-board-save-with-replay" class="risque-board-op-btn risque-board-op-btn--hide-with-top" title="Same as SAVE GAME: game JSON + full session replay sidecar.">SAVE + REPLAY</button>' +
       '<div class="risque-board-round-save-cluster">' +
       '<div id="risque-board-round-save-status" class="risque-board-round-save-status risque-board-op-btn" aria-live="polite" aria-label="Autosave — configure policy and save folder" title="Autosave policy and save folder — click to configure">Autosave Config</div>' +

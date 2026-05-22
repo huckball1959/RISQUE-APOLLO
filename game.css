@@ -3872,6 +3872,30 @@ body[data-risque-phase="postgame"] #risque-host-cards-in-hand-panel {
   box-sizing: border-box;
 }
 
+/* Five cards in the upper hand pane: flex + 138px thumbs overflow — fit one row (staging stays larger). */
+.risque-phase-content
+  .receivecard-hand-strip--upper:has(img.receivecard-thumb:nth-child(5)) {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px 6px;
+  align-items: start;
+  justify-items: center;
+  width: 100%;
+  flex-wrap: unset;
+}
+
+.risque-phase-content
+  .receivecard-hand-strip--upper:has(img.receivecard-thumb:nth-child(5))
+  .receivecard-thumb {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  max-height: min(200px, 28vh) !important;
+  flex-shrink: 1;
+  object-fit: contain;
+  box-sizing: border-box;
+}
+
 /* Shared BOOK ✓ pill (receive-card + cardplay) — ~50% larger than original */
 .risque-book-pill-row {
   display: flex;

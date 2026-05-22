@@ -5,6 +5,22 @@
 (function () {
   "use strict";
 
+  function risqueDefaultSaveFolderHint() {
+    if (typeof window.risqueInferDefaultWindowsSaveFolder === "function") {
+      return window.risqueInferDefaultWindowsSaveFolder();
+    }
+    try {
+      var href = String(window.location.href || "");
+      var m = href.match(/^file:\/\/\/([A-Za-z]):\//);
+      if (m && /[\/\\]github[\/\\]/i.test(decodeURIComponent(href))) {
+        return m[1].toUpperCase() + ":\\github\\save";
+      }
+    } catch (eD) {
+      /* ignore */
+    }
+    return "C:\\risque\\save";
+  }
+
   /** Same key as host game-shell — public game.html polls this for the TV map. */
   var RISQUE_PUBLIC_MIRROR_LS_KEY = "risquePublicMirrorState";
   var __risqueReplayMirrorSeqCounter = 0;
@@ -2218,8 +2234,8 @@
   function mapRqwbPhaseKindToTapeSegment(kind) {
     var k = kind != null ? String(kind).trim().toLowerCase() : "";
     if (k === "deal") return "deal";
+    if (k === "battle_outcome" || k === "attack_phase") return "battle";
     if (k === "post_setup_deploy" || k === "post_deploy" || k === "turn_deploy") return "deploy";
-    if (k === "attack_phase") return "battle";
     if (k === "reinforce") return "reinforce";
     return "deploy";
   }
@@ -2703,7 +2719,9 @@
       '<p class="risque-replay-machine-brand-main">WAYBACK MACHINE</p>' +
       "</div>" +
       '<div class="risque-replay-file-row risque-replay-file-row--primary">' +
-      '<button type="button" id="risque-replay-folder-connect" class="risque-replay-file-pick-btn risque-replay-file-pick-btn--primary" title="Pick your flat save folder once (default C:\\risque\\save with scripts\\RISQUE.bat — same as round autosave)">' +
+      '<button type="button" id="risque-replay-folder-connect" class="risque-replay-file-pick-btn risque-replay-file-pick-btn--primary" title="Pick your flat save folder once (default ' +
+        risqueDefaultSaveFolderHint() +
+        ' with APOLLO-LAUNCHER.bat — same as round autosave)">' +
       "Connect saved folder" +
       "</button>" +
       '<button type="button" id="risque-replay-folder-refresh" class="risque-replay-file-pick-btn" title="Reload all *replay*.json from the connected folder">' +
@@ -2766,7 +2784,9 @@
     var el = document.getElementById("risque-replay-launcher-path-hint");
     if (!el) return;
     el.textContent =
-      "Launcher default save folder is usually C:\\risque\\save — Connect once so mid-game saves match disk.";
+      "Launcher default save folder is usually " +
+        risqueDefaultSaveFolderHint() +
+        " — Connect once so mid-game saves match disk.";
     if (typeof window.risqueFetchLauncherPathsJson !== "function") return;
     window
       .risqueFetchLauncherPathsJson()
@@ -3306,7 +3326,7 @@
         (typeof window.risqueLocalDiskIsActive === "function" && window.risqueLocalDiskIsActive()) ||
         (typeof window.risqueLocalDiskIsConfigured === "function" && window.risqueLocalDiskIsConfigured());
       if (launcherDisk) {
-        setStatus("Launcher disk path active (C:\\risque\\save). Manual folder connect is optional.");
+        setStatus("Launcher disk path active (" + risqueDefaultSaveFolderHint() + "). Manual folder connect is optional.");
       }
     } catch (eLdHint) {
       /* ignore */
