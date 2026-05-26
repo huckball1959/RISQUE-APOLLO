@@ -21,7 +21,7 @@ catch {
 }
 $flag = [string]$ctx.instanceFlag
 if ([string]::IsNullOrWhiteSpace($flag)) {
-    $flag = "--risque-launcher-instance=risque-gemini-local"
+    $flag = "--risque-launcher-instance=risque-apollo-local"
 }
 $delay = 3
 try {

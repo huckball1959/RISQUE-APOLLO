@@ -8,7 +8,7 @@
     %TEMP%\risque-host-chrome
     %TEMP%\risque-browser-profiles
 
-  Stops Chrome tagged with risque-apollo-local or risque-gemini-local.
+  Stops Chrome tagged with risque-apollo-local (default Apollo launch) or risque-apollo-menu (menu-driven scripts\RISQUE.bat launch).
 #>
 $ErrorActionPreference = "SilentlyContinue"
 
@@ -29,7 +29,7 @@ $dirs = @(
 )
 
 Write-Host "RISQUE-APOLLO browser prep..." -ForegroundColor Cyan
-foreach ($id in @("risque-apollo-local", "risque-gemini-local")) {
+foreach ($id in @("risque-apollo-local", "risque-apollo-menu")) {
     Stop-RisqueLauncherChromeByFlag -InstanceId $id
 }
 Start-Sleep -Seconds 2

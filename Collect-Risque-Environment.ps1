@@ -135,8 +135,9 @@ try {
 Add ''
 Add '=== UNIFIED + other clones (game.html script fingerprints) ==='
 $repos = @(
+  'X:\github\RISQUE-APOLLO',
+  'C:\github\RISQUE-APOLLO',
   'C:\github\RISQUE-UNIFIED',
-  'C:\github\RISQUE-GEMINI',
   'C:\github\risque',
   'C:\github\RISQUE'
 )
@@ -160,7 +161,8 @@ Add ''
 Add '=== Launcher paths json ==='
 foreach ($lp in @(
   (Join-Path $labRoot 'risque-launcher-paths.json'),
-  'C:\github\RISQUE-GEMINI\risque-launcher-paths.json',
+  'X:\github\RISQUE-APOLLO\risque-launcher-paths.json',
+  'C:\github\RISQUE-APOLLO\risque-launcher-paths.json',
   'C:\github\risque\risque-launcher-paths.json'
 )) {
   if (Test-Path -LiteralPath $lp) {

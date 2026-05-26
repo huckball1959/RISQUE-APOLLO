@@ -1,14 +1,14 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  RISQUE-GEMINI launcher — flat save folder, Chromium download path, then Local vs hosted GEMINI; dual displays by default.
+  RISQUE-APOLLO launcher — flat save folder, Chromium download path, then Local vs hosted RISQUE-APOLLO; dual displays by default.
 
 .DESCRIPTION
  - Ensures the save folder exists (default <drive>:\github\save when repo is under \github\, else C:\risque\save, or RISQUE_DOWNLOAD_PATH).
  - Local launch only: starts a tiny loopback save API (risque-disk-server.ps1 on 127.0.0.1, default port 5599) so the game writes DD.json / rNpM*.json into the save root with zero browser folder picks. Hosted launch skips the API.
  - Sets Chromium default download directory to that folder (JSON downloads land there; browser profile lives under %TEMP%).
  - Writes risque-launcher-paths.json beside the repo (gitignored) for path hints.
- - Asks: local (this clone) or hosted GEMINI (GitHub Pages), then opens host on the primary display (work area size, tabs visible) and
+ - Asks: local (this clone) or hosted RISQUE-APOLLO (GitHub Pages), then opens host on the primary display (work area size, tabs visible) and
     public TV on the secondary (Win32 move + F11). Single-window mode is opt-in (-SingleWindow).
 
   Local clone uses file:// for pages; a separate minimal HTTP listener on localhost is used only for save/replay JSON (not for serving the game).
@@ -25,7 +25,7 @@
   Open hosted build instead of local clone (skips menu).
 
 .PARAMETER HostedUrl
-  Override URL when using -Hosted (index.html or game.html; default is GEMINI game.html with login flow).
+  Override URL when using -Hosted (index.html or game.html; default is RISQUE-APOLLO game.html with login flow).
 
 .PARAMETER File
   Legacy alias for local file:// launch (same as default).
@@ -64,7 +64,7 @@ if ($PrepareEnvOnly) {
     $SkipMenu = $true
 }
 
-$DefaultHostedUrl = "https://huckball1959.github.io/RISQUE-GEMINI/game.html?phase=login&loginLegacyNext=game.html%3Fphase%3DplayerSelect%26selectKind%3DfirstCard&loginLoadRedirect=game.html%3Fphase%3Dcardplay%26legacyNext%3Dincome.html"
+$DefaultHostedUrl = "https://huckball1959.github.io/RISQUE-APOLLO/game.html?phase=login&loginLegacyNext=game.html%3Fphase%3DplayerSelect%26selectKind%3DfirstCard&loginLoadRedirect=game.html%3Fphase%3Dcardplay%26legacyNext%3Dincome.html"
 
 function Get-RisqueDefaultSaveRoot {
     param([string]$RepoRootPath)
@@ -116,7 +116,7 @@ $SaveRoot = Get-RisqueDefaultSaveRoot -RepoRootPath $RepoRoot
 $SaveRoot = Get-RisqueSaveRootOrParentIfBranch -Path $SaveRoot
 
 # Chromium/Edge command line marker so risque-browser-restart-job.ps1 can kill only RISQUE-launched windows.
-$launcherInstanceId = "risque-gemini-local"
+$launcherInstanceId = "risque-apollo-menu"
 if (-not [string]::IsNullOrWhiteSpace($env:RISQUE_LAUNCHER_INSTANCE)) {
     $launcherInstanceId = $env:RISQUE_LAUNCHER_INSTANCE.Trim()
 }
@@ -195,39 +195,75 @@ function Write-RisqueBrowserResumeRestartContext {
 
 function Stop-RisqueDiskListenerOnPort {
     param([int]$PortNum)
-    try {
-        $conns = @(Get-NetTCPConnection -LocalPort $PortNum -State Listen -ErrorAction SilentlyContinue)
-        foreach ($c in $conns) {
-            $op = $c.OwningProcess
-            if ($op -and $op -gt 0) {
-                Stop-Process -Id $op -Force -ErrorAction SilentlyContinue
-            }
-        }
-    }
-    catch {
-        # ignore — port may be free or cmdlet unavailable
-    }
-    # OwningProcess is often empty without elevation; kill any shell still hosting risque-disk-server.ps1.
+    # Always kill every powershell shell hosting risque-disk-server.ps1 — older stale instances
+    # (no -GameRoot support) keep the port alive even after Stop-Process by OwningProcess fails,
+    # which caused the launcher to spin in Start-RisqueLocalDiskApi and eventually give up.
+    $killed = 0
     try {
         Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
             Where-Object {
                 ($_.Name -eq "powershell.exe" -or $_.Name -eq "pwsh.exe") -and
                 $_.CommandLine -and ($_.CommandLine -like "*risque-disk-server.ps1*")
             } |
-            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            ForEach-Object {
+                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+                $killed++
+            }
     }
     catch {
     }
-    Start-Sleep -Milliseconds 900
+    try {
+        $conns = @(Get-NetTCPConnection -LocalPort $PortNum -State Listen -ErrorAction SilentlyContinue)
+        foreach ($c in $conns) {
+            $op = $c.OwningProcess
+            if ($op -and $op -gt 0) {
+                Stop-Process -Id $op -Force -ErrorAction SilentlyContinue
+                $killed++
+            }
+        }
+    }
+    catch {
+        # ignore — port may be free or cmdlet unavailable
+    }
+    # Wait until port is actually free (up to ~6s) so the next Start-Process can bind cleanly.
+    $deadline = (Get-Date).AddSeconds(6)
+    while ((Get-Date) -lt $deadline) {
+        $stillListening = $false
+        try {
+            $stillListening = @(Get-NetTCPConnection -LocalPort $PortNum -State Listen -ErrorAction SilentlyContinue).Count -gt 0
+        }
+        catch {
+        }
+        if (-not $stillListening) {
+            # Double-check by probing /api/health — stale listeners sometimes survive Get-NetTCPConnection misses.
+            try {
+                $probe = Invoke-WebRequest -Uri "http://127.0.0.1:$PortNum/api/health" -UseBasicParsing -TimeoutSec 1
+                if ($probe.StatusCode -eq 200) {
+                    $stillListening = $true
+                }
+            }
+            catch {
+                # connection refused => port truly free
+            }
+        }
+        if (-not $stillListening) { return $killed }
+        Start-Sleep -Milliseconds 400
+    }
+    return $killed
 }
 
 function Start-RisqueLocalDiskApi {
-    # Starts one hidden HttpListener helper so game.js can POST replay/session JSON into the save folder (no picker).
+    # Starts one hidden HttpListener helper so game.js can POST replay/session JSON into the save folder (no picker),
+    # and POST Presets\login-presets.json into the repo (game-root) so presets travel with RISQUE-APOLLO across machines.
     param(
         [Parameter(Mandatory = $true)][string]$SaveRootPath,
+        [Parameter(Mandatory = $true)][string]$GameRootPath,
         [int]$Port
     )
     $base = "http://127.0.0.1:$Port"
+    $wantGameRoot = $GameRootPath
+    try { $wantGameRoot = [System.IO.Path]::GetFullPath($GameRootPath.Trim()) } catch { }
+
     $alreadyCurrent = $false
     $hadListener = $false
     try {
@@ -236,8 +272,11 @@ function Start-RisqueLocalDiskApi {
             $hadListener = $true
             try {
                 $hj = $resp.Content | ConvertFrom-Json
-                if ($null -ne $hj -and $hj.supportsRestartBrowser -eq $true -and $hj.supportsWipeRoot -eq $true) {
-                    $alreadyCurrent = $true
+                if ($null -ne $hj -and $hj.supportsRestartBrowser -eq $true -and $hj.supportsWipeRoot -eq $true -and $hj.supportsGameRoot -eq $true) {
+                    $existingGameRoot = if ($null -ne $hj.gameRoot) { [string]$hj.gameRoot } else { "" }
+                    if ($existingGameRoot.Equals($wantGameRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                        $alreadyCurrent = $true
+                    }
                 }
             }
             catch {
@@ -249,27 +288,31 @@ function Start-RisqueLocalDiskApi {
     }
     if ($alreadyCurrent) {
         Write-Host "Save helper already running: $base" -ForegroundColor DarkGray
+        Write-Host "  Game-folder writes (e.g. Presets\login-presets.json) under: $wantGameRoot" -ForegroundColor DarkGray
         return $base
     }
     if ($hadListener) {
-        Write-Warning "Stopping outdated save helper on port $Port (missing wipe-root / restart-browser); starting updated risque-disk-server.ps1."
+        Write-Warning "Stopping outdated save helper on port $Port (missing game-root); starting updated risque-disk-server.ps1."
     }
     $serverScript = Join-Path $ScriptDir "risque-disk-server.ps1"
     if (-not (Test-Path -LiteralPath $serverScript)) {
         Write-Warning ("Missing disk server script: {0} (keep repo scripts folder intact)." -f $serverScript)
         return ""
     }
-    # Retry: stale listener often survives when TCP OwningProcess is unavailable; require supportsRestartBrowser in health.
-    for ($spin = 1; $spin -le 3; $spin++) {
+    # Retry up to 5 times. Stop-RisqueDiskListenerOnPort now waits until the port is fully free
+    # (and double-checks via /api/health), so the new server can always bind on the next spawn.
+    $lastHealthBody = ""
+    for ($spin = 1; $spin -le 5; $spin++) {
         if ($spin -gt 1) {
-            Write-Warning "Save helper on $base did not report supportsWipeRoot; recycling listener (attempt $spin/3)."
+            Write-Warning "Save helper on $base did not advertise game-root (got: $lastHealthBody); recycling listener (attempt $spin/5)."
         }
-        Stop-RisqueDiskListenerOnPort -PortNum $Port
+        Stop-RisqueDiskListenerOnPort -PortNum $Port | Out-Null
         try {
             Start-Process -FilePath "powershell.exe" -ArgumentList @(
                 "-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass",
                 "-File", $serverScript,
                 "-SaveRoot", $SaveRootPath,
+                "-GameRoot", $GameRootPath,
                 "-Port", $Port
             ) -WindowStyle Hidden
         }
@@ -277,16 +320,21 @@ function Start-RisqueLocalDiskApi {
             Write-Warning "Could not start save helper: $($_.Exception.Message)"
             return ""
         }
-        $deadline = (Get-Date).AddSeconds(10)
+        $deadline = (Get-Date).AddSeconds(12)
         while ((Get-Date) -lt $deadline) {
             try {
                 $r2 = Invoke-WebRequest -Uri "$base/api/health" -UseBasicParsing -TimeoutSec 1
                 if ($r2.StatusCode -eq 200) {
+                    $lastHealthBody = [string]$r2.Content
                     try {
                         $hj2 = $r2.Content | ConvertFrom-Json
-                        if ($null -ne $hj2 -and $hj2.supportsRestartBrowser -eq $true -and $hj2.supportsWipeRoot -eq $true) {
-                            Write-Host "Session files will save under: $SaveRootPath" -ForegroundColor Green
-                            return $base
+                        if ($null -ne $hj2 -and $hj2.supportsRestartBrowser -eq $true -and $hj2.supportsWipeRoot -eq $true -and $hj2.supportsGameRoot -eq $true) {
+                            $reportedGameRoot = if ($null -ne $hj2.gameRoot) { [string]$hj2.gameRoot } else { "" }
+                            if ($reportedGameRoot.Equals($wantGameRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                                Write-Host "Session files will save under: $SaveRootPath" -ForegroundColor Green
+                                Write-Host "Game-folder writes (e.g. Presets\login-presets.json) under: $wantGameRoot" -ForegroundColor Green
+                                return $base
+                            }
                         }
                     }
                     catch {
@@ -298,7 +346,8 @@ function Start-RisqueLocalDiskApi {
             Start-Sleep -Milliseconds 300
         }
     }
-    Write-Warning "Save helper did not start or advertise restart-browser on $base . Replays stay in the browser until this works."
+    Write-Warning "Save helper did not start or advertise game-root on $base after 5 attempts. Last health: $lastHealthBody"
+    Write-Warning "Login presets will be cached in the browser only until this works."
     return ""
 }
 
@@ -657,11 +706,11 @@ $showMenu = (
 
 if ($showMenu) {
     Write-Host ""
-    Write-Host " RISQUE-GEMINI - which build?" -ForegroundColor Cyan
+    Write-Host " RISQUE-APOLLO - which build?" -ForegroundColor Cyan
     Write-Host '  (Host opens on your main display; public TV on the second - fullscreen / positioned automatically.)'
     Write-Host ""
     Write-Host "  1  Local game  - this repo from disk (file://)"
-    Write-Host "  2  Web game    - GEMINI on GitHub Pages (login URL)"
+    Write-Host "  2  Web game    - RISQUE-APOLLO on GitHub Pages (login URL)"
     Write-Host ""
     $choice = Read-Host "Enter 1 or 2"
     $c = if ($null -eq $choice) { "" } else { $choice.Trim() }
@@ -686,7 +735,7 @@ if ($Hosted) {
     Write-RisqueLauncherPaths -GameDir $RepoRoot -DiskApiBase "" -PeriodicBrowserRestartEveryRounds 0
 }
 else {
-    $diskApiBaseForJson = Start-RisqueLocalDiskApi -SaveRootPath $SaveRoot -Port $diskPort
+    $diskApiBaseForJson = Start-RisqueLocalDiskApi -SaveRootPath $SaveRoot -GameRootPath $RepoRoot -Port $diskPort
     Write-RisqueLauncherPaths -GameDir $RepoRoot -DiskApiBase $diskApiBaseForJson -PeriodicBrowserRestartEveryRounds $PeriodicBrowserRestartRounds
     Write-RisqueBrowserResumeRestartContext -SaveRootPath $SaveRoot -BatchPath (Join-Path $ScriptDir "RISQUE.bat") -BatWorkingDirectory $ScriptDir
 }
