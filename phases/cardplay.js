@@ -3325,6 +3325,48 @@
     }
     async function handleSelectCards() {
       wipeCardplayPublicMapHighlight();
+
+      /* Short-circuit: when the hand contains exactly one valid 3-card book and that book
+         uses no wildcards, there is no real choice to make — auto-stage the trio and dive
+         straight into the per-card host prompts. RST still works until the final CONFIRM
+         (handleReset() guards on processingBook / playedCards, not on this entry point). */
+      var autoTrio = null;
+      try {
+        if (window.gameUtils && typeof window.gameUtils.findUniqueRisqueBookTrio === "function") {
+          autoTrio = window.gameUtils.findUniqueRisqueBookTrio(getUnplayedCards());
+        }
+      } catch (eAuto) {
+        autoTrio = null;
+        logToStorage("Book auto-pick lookup failed", {
+          message: eAuto && eAuto.message ? eAuto.message : String(eAuto)
+        });
+      }
+      if (autoTrio && autoTrio.length === 3) {
+        isBookSelectionMode = true;
+        isIndividualSelectionMode = false;
+        selectedCards = autoTrio.map(function (c) {
+          return { card: c.name, id: c.id };
+        });
+        document.querySelectorAll(".card").forEach(function (card) {
+          card.classList.remove("selected");
+        });
+        setCardplayError("");
+        if (isCardplayHudCompact()) {
+          rebuildCardplayHandAndStaging();
+        } else {
+          var stagedIds = selectedCards.map(function (sc) { return String(sc.id); });
+          document.querySelectorAll(".card").forEach(function (img) {
+            var did = img.dataset && img.dataset.id != null ? String(img.dataset.id) : "";
+            if (did && stagedIds.indexOf(did) !== -1) img.classList.add("selected");
+          });
+        }
+        logToStorage("Book auto-picked (single non-wild combo)", {
+          cards: selectedCards.map(function (sc) { return sc.card; })
+        });
+        await validateAndProcessBook();
+        return;
+      }
+
       isBookSelectionMode = true;
       isIndividualSelectionMode = false;
       selectedCards = [];

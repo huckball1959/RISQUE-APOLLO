@@ -2538,6 +2538,39 @@ window.gameUtils = {
     }
     return false;
   },
+  /**
+   * Returns the unique 3-card book trio when there is exactly one valid 3-subset AND no wildcard
+   * appears in it. Otherwise returns null. Used by cardplay BOOK button to skip manual card
+   * selection + PROCESS clicks when the player has no real choice to make. Hands with multiple
+   * valid trios (e.g. 4 of same kind, 5 cards of mixed types with duplicates) and any trio that
+   * relies on a wildcard fall through to the existing manual selection flow.
+   * @param {{name:string,id:any}[]|string[]} cards - hand (typically getUnplayedCards())
+   * @returns {Array|null} the original 3 card entries from the input, or null
+   */
+  findUniqueRisqueBookTrio: function(cards) {
+    if (!Array.isArray(cards) || cards.length < 3) return null;
+    var n = cards.length;
+    var nameOf = function(c) { return typeof c === 'string' ? c : (c && c.name); };
+    var found = null;
+    for (var i = 0; i < n; i++) {
+      for (var j = i + 1; j < n; j++) {
+        for (var k = j + 1; k < n; k++) {
+          var trio = [cards[i], cards[j], cards[k]];
+          var ids = [nameOf(trio[0]), nameOf(trio[1]), nameOf(trio[2])];
+          if (!ids[0] || !ids[1] || !ids[2]) continue;
+          if (!this.isValidRisqueThreeCardSet(ids)) continue;
+          if (found) return null; /* second valid trio → ambiguous, bail */
+          found = trio;
+        }
+      }
+    }
+    if (!found) return null;
+    for (var x = 0; x < found.length; x++) {
+      var nm = nameOf(found[x]);
+      if (nm === 'wildcard1' || nm === 'wildcard2') return null;
+    }
+    return found;
+  },
   getTerritoryNames: function() {
     return Object.keys(this.territories);
   },
