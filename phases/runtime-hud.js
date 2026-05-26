@@ -151,11 +151,12 @@
       "</div>" +
       '<div id="risque-grace-host-screen-pick" class="risque-grace-host-screen" hidden>' +
       '<p class="risque-grace-host-title">Grace rollback</p>' +
-      '<p class="risque-grace-host-desc">Choose rollback mode.</p>' +
+      '<p class="risque-grace-host-desc">Rewind to a saved bookmark from this session. Undo uses the last write before your latest change (same tab).</p>' +
       '<p id="risque-grace-host-pick-warn" class="risque-grace-host-pick-warn" hidden></p>' +
-      '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-undo" disabled>1) Undo (last action)</button>' +
-      '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-current" disabled>2) Roll back phase</button>' +
-      '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-cycle" disabled>3) Complete player cycle</button>' +
+      '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-undo" disabled>1) Undo last save (one step back)</button>' +
+      '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-phase-start" disabled>2) Restart this phase (erase what you did this phase)</button>' +
+      '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-prev-phase" disabled>3) Undo last phase advance (KEEP this-phase results)</button>' +
+      '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-cycle" disabled>4) Restart this turn at cardplay</button>' +
       '<button type="button" class="risque-grace-host-btn" id="risque-grace-host-pick-cancel">Cancel</button>' +
       "</div>" +
       '<div id="risque-grace-host-screen-confirm" class="risque-grace-host-screen" hidden>' +

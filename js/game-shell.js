@@ -12299,10 +12299,10 @@
     '<p class="risque-grace-host-title">Grace rollback</p>' +
     '<p class="risque-grace-host-desc">Rewind to a saved bookmark from this session. Undo uses the last write before your latest change (same tab).</p>' +
     '<p id="risque-grace-host-pick-warn" class="risque-grace-host-pick-warn" hidden></p>' +
-    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-undo" disabled>1) Undo last save</button>' +
-    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-phase-start" disabled>2) Start of this phase</button>' +
-    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-prev-phase" disabled>3) End of previous phase</button>' +
-    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-cycle" disabled>4) Start of turn (cardplay)</button>' +
+    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-undo" disabled>1) Undo last save (one step back)</button>' +
+    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-phase-start" disabled>2) Restart this phase (erase what you did this phase)</button>' +
+    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-prev-phase" disabled>3) Undo last phase advance (KEEP this-phase results)</button>' +
+    '<button type="button" class="risque-grace-host-btn risque-grace-host-btn--primary" id="risque-grace-host-opt-cycle" disabled>4) Restart this turn at cardplay</button>' +
     '<button type="button" class="risque-grace-host-btn" id="risque-grace-host-pick-cancel">Cancel</button>' +
     "</div>" +
     '<div id="risque-grace-host-screen-confirm" class="risque-grace-host-screen" hidden>' +
@@ -12522,7 +12522,7 @@
         if (t.disabled) return;
         if (!__risqueGracePickJsonUndo) return;
         graceShowConfirmScreen(
-          "Restore the game to one save ago — the last point before your most recent automatic save (same as one Undo step).",
+          "ONE STEP BACK. Restore the very last gameState save before the most recent one. Useful for taking back the most recent click or move. May or may not cross a phase boundary depending on what the last save was.",
           __risqueGracePickJsonUndo,
           __risqueGracePickIndexUndo
         );
@@ -12532,7 +12532,7 @@
         if (t.disabled) return;
         if (!__risqueGracePickJsonPhaseStart) return;
         graceShowConfirmScreen(
-          "Rewind to the start of the current phase for this player (for example, undo reinforcement moves without leaving reinforce).",
+          "RESTART CURRENT PHASE. Erase everything this player has done since entering the current phase. You stay in this phase but at its starting state. Example: undo all reinforcement placements without leaving reinforce.",
           __risqueGracePickJsonPhaseStart,
           __risqueGracePickIndexPhaseStart
         );
@@ -12542,7 +12542,7 @@
         if (t.disabled) return;
         if (!__risqueGracePickJsonPrevPhase) return;
         graceShowConfirmScreen(
-          "Jump back to the end of the previous phase — the board state from before you entered this phase (e.g. after attack, before reinforce).",
+          "UNDO THE LAST PHASE-ADVANCE CONFIRM. Take back the CONFIRM button press that moved you into this phase. You return to the previous phase at the exact moment just before that CONFIRM was pressed — everything done during the previous phase is preserved (e.g. a lucky attack campaign stays intact when undoing attack→reinforce; deployed troops stay placed when undoing deploy→attack).",
           __risqueGracePickJsonPrevPhase,
           __risqueGracePickIndexPrevPhase
         );
@@ -12552,7 +12552,7 @@
         if (t.disabled) return;
         if (!__risqueGracePickJsonCycle) return;
         graceShowConfirmScreen(
-          "Go back to the beginning of this player's turn at card play (same player, start of their cycle).",
+          "RESTART CURRENT PLAYER'S TURN. Roll the same player all the way back to the cardplay phase that started their turn this round. Wipes everything they did this turn.",
           __risqueGracePickJsonCycle,
           __risqueGracePickIndexCycle
         );
