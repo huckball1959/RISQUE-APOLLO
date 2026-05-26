@@ -149,6 +149,28 @@
     });
   };
 
+  /**
+   * Game-folder writes (root: "game") — for files that must travel with the repo (e.g. Presets\login-presets.json).
+   * Requires risque-disk-server.ps1 launched with -GameRoot; in hosted mode this fails fast.
+   */
+  window.risqueLocalDiskWriteGame = function (relPath, text) {
+    var p = String(relPath || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    return post("/api/write", { path: p, root: "game", content: text != null ? String(text) : "" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("risque-disk write (game) failed");
+        return r.json();
+      });
+  };
+
+  window.risqueLocalDiskReadGame = function (relPath) {
+    var p = String(relPath || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    return post("/api/read", { path: p, root: "game" }).then(function (r) {
+      if (r.status === 404) return { ok: false, error: "not found" };
+      if (!r.ok) throw new Error("risque-disk read (game) failed");
+      return r.json();
+    });
+  };
+
   window.risqueLocalDiskListDir = function (relDir) {
     var d = String(relDir || "").replace(/\\/g, "/").replace(/^\/+/, "");
     return post("/api/list", { dir: d }).then(function (r) {

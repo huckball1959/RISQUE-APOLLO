@@ -438,8 +438,12 @@
   var LAST_LOGIN_NAMES_KEY = "risqueLoginLastNames";
   /** Car-radio user presets: { "0": [{name,color},...], ... } — merged with built-ins when absent. */
   var LOGIN_RADIO_PRESETS_KEY = "risqueLoginRadioPresetsV1";
-  /** Flat file next to session JSON in the host save folder (picker or launcher disk). */
-  var LOGIN_RADIO_PRESETS_DISK_FILE = "risque-login-radio-presets-v1.json";
+  /**
+   * Presets live in the GAME folder (Presets\login-presets.json) so they travel with the repo
+   * when porting RISQUE-APOLLO computer to computer. Written via the local disk-server (root: "game").
+   * localStorage is a per-browser cache; the game-folder file is authoritative on read.
+   */
+  var LOGIN_RADIO_PRESETS_DISK_FILE = "Presets/login-presets.json";
   var userPresetsMapLoaded = false;
   var userPresetsMap = {};
 
@@ -477,6 +481,10 @@
     }
   }
 
+  /**
+   * Writes Presets\login-presets.json INSIDE the game folder via the local disk-server (root: "game").
+   * Hosted mode (no disk server) silently no-ops; localStorage still holds the user's edits.
+   */
   function flushLoginPresetsToDiskAsync() {
     if (window.risqueDisplayIsPublic) return Promise.resolve(false);
     var bootWait =
@@ -485,25 +493,18 @@
         : Promise.resolve(null);
     return bootWait
       .then(function () {
-        if (
-          typeof window.risqueSessionDiskHasWritableSaveTarget !== "function" ||
-          !window.risqueSessionDiskHasWritableSaveTarget()
-        ) {
-          return null;
+        if (typeof window.risqueLocalDiskIsActive !== "function" || !window.risqueLocalDiskIsActive()) {
+          return false;
         }
-        if (typeof window.risqueSessionDiskEnsureGameDirHandle !== "function") return null;
-        return window.risqueSessionDiskEnsureGameDirHandle(null);
-      })
-      .then(function (dh) {
-        if (!dh || typeof window.risqueSessionDiskWriteTextFile !== "function") return false;
+        if (typeof window.risqueLocalDiskWriteGame !== "function") return false;
         var json;
         try {
           json = JSON.stringify(userPresetsMap, null, 2);
         } catch (eJ) {
           return false;
         }
-        return window.risqueSessionDiskWriteTextFile(dh, LOGIN_RADIO_PRESETS_DISK_FILE, json).then(function (okW) {
-          return !!okW;
+        return window.risqueLocalDiskWriteGame(LOGIN_RADIO_PRESETS_DISK_FILE, json).then(function (r) {
+          return !!(r && r.ok);
         });
       })
       .catch(function () {
@@ -512,8 +513,8 @@
   }
 
   /**
-   * Merge preset slots from disk into memory (per-slot: non-empty arrays win).
-   * Updates localStorage only — avoids rewriting disk during hydrate.
+   * Merge preset slots from the game-folder file into memory (per-slot: non-empty arrays win).
+   * Updates in-memory map only; caller decides when to flush localStorage / disk.
    */
   function mergeDiskPresetMapIntoMemory(diskObj) {
     if (!diskObj || typeof diskObj !== "object" || Array.isArray(diskObj)) return false;
@@ -529,26 +530,7 @@
     return merged;
   }
 
-  /**
-   * Repo-shipped defaults: fill only slots that have no saved rows yet (localStorage was empty for that slot).
-   * Applied before save-folder merge so disk still overrides per slot.
-   */
-  function mergeBundledPresetGapsIntoMemory(bundledObj) {
-    if (!bundledObj || typeof bundledObj !== "object" || Array.isArray(bundledObj)) return false;
-    var merged = false;
-    Object.keys(bundledObj).forEach(function (k) {
-      var rows = normalizePresetRowsFromStorage(bundledObj[k]);
-      if (!rows.length) return;
-      if (normalizePresetRowsFromStorage(userPresetsMap[k]).length > 0) return;
-      userPresetsMap[k] = rows.map(function (r) {
-        return { name: r.name, color: r.color };
-      });
-      merged = true;
-    });
-    return merged;
-  }
-
-  function bundledLoginPresetsFetchUrl() {
+  function loginPresetsFetchUrl() {
     if (typeof window.risqueResolveDocUrl === "function") {
       var u = window.risqueResolveDocUrl("loginRadioPresets");
       if (u) return u;
@@ -556,9 +538,10 @@
     return LOGIN_RADIO_PRESETS_DISK_FILE;
   }
 
-  function fetchBundledLoginPresetsText() {
+  /** Hosted-mode read (no disk server): HTTP fetch from the served game folder URL. */
+  function fetchLoginPresetsTextHttp() {
     if (typeof fetch !== "function") return Promise.resolve(null);
-    var url = bundledLoginPresetsFetchUrl();
+    var url = loginPresetsFetchUrl();
     return fetch(url, { cache: "no-store" })
       .then(function (r) {
         return r.ok ? r.text() : null;
@@ -566,6 +549,29 @@
       .catch(function () {
         return null;
       });
+  }
+
+  /**
+   * Local-mode read: ask the disk-server for the presets file under the GAME root.
+   * Falls back to HTTP fetch when the disk server is unavailable (hosted / static).
+   */
+  function fetchLoginPresetsTextGameFolder() {
+    if (
+      typeof window.risqueLocalDiskIsActive === "function" &&
+      window.risqueLocalDiskIsActive() &&
+      typeof window.risqueLocalDiskReadGame === "function"
+    ) {
+      return window
+        .risqueLocalDiskReadGame(LOGIN_RADIO_PRESETS_DISK_FILE)
+        .then(function (rj) {
+          if (rj && rj.ok && rj.content != null) return String(rj.content);
+          return fetchLoginPresetsTextHttp();
+        })
+        .catch(function () {
+          return fetchLoginPresetsTextHttp();
+        });
+    }
+    return fetchLoginPresetsTextHttp();
   }
 
   /** True if the map has at least one saved preset slot with one or more players (browser or merged memory). */
@@ -580,6 +586,12 @@
     return false;
   }
 
+  /**
+   * On login mount: Presets\login-presets.json (in the game folder) is the single source of truth.
+   * When porting the repo to a new machine, those presets travel with it; localStorage on the new
+   * machine is overwritten from the file per-slot. If the file is missing but localStorage has
+   * rows (first run after this rework), proactively flush so the game-folder copy gets created.
+   */
   function hydrateLoginPresetsFromDisk(formRoot, onLog) {
     if (window.risqueDisplayIsPublic) return;
     ensureUserPresetsMapLoaded();
@@ -589,53 +601,28 @@
         : Promise.resolve(null);
     bootWait
       .then(function () {
-        var bundledP = fetchBundledLoginPresetsText();
-        var diskP = Promise.resolve(null);
-        if (typeof window.risqueSessionDiskEnsureGameDirHandle === "function") {
-          diskP = window.risqueSessionDiskEnsureGameDirHandle(null).then(function (dh) {
-            if (!dh || typeof window.risqueSessionDiskReadTextFile !== "function") return null;
-            return window.risqueSessionDiskReadTextFile(dh, LOGIN_RADIO_PRESETS_DISK_FILE);
-          });
-        }
-        return Promise.all([bundledP, diskP]);
+        return fetchLoginPresetsTextGameFolder();
       })
-      .then(function (pair) {
-        var bundledTxt = pair[0];
-        var diskTxt = pair[1];
-        var mergedBundled = false;
-        if (bundledTxt != null && typeof bundledTxt === "string" && String(bundledTxt).trim()) {
+      .then(function (fileTxt) {
+        var mergedFromFile = false;
+        if (fileTxt != null && typeof fileTxt === "string" && String(fileTxt).trim()) {
           try {
-            mergedBundled = mergeBundledPresetGapsIntoMemory(JSON.parse(bundledTxt));
-          } catch (eBundled) {
-            mergedBundled = false;
-          }
-        }
-        var mergedFromDisk = false;
-        if (diskTxt != null && typeof diskTxt === "string" && String(diskTxt).trim()) {
-          try {
-            mergedFromDisk = mergeDiskPresetMapIntoMemory(JSON.parse(diskTxt));
+            mergedFromFile = mergeDiskPresetMapIntoMemory(JSON.parse(fileTxt));
           } catch (eParse) {
-            mergedFromDisk = false;
+            mergedFromFile = false;
           }
         }
-        if (mergedBundled || mergedFromDisk) {
+        if (mergedFromFile) {
           savePresetsToLocalStorage();
           if (formRoot) refreshAllPresetButtonTitles(formRoot);
+          if (typeof onLog === "function") {
+            onLog("Login presets loaded from " + LOGIN_RADIO_PRESETS_DISK_FILE);
+          }
         }
-        if (mergedFromDisk && typeof onLog === "function") {
-          onLog("Login presets merged from save folder (" + LOGIN_RADIO_PRESETS_DISK_FILE + ")");
-        }
-        if (mergedBundled && typeof onLog === "function") {
-          onLog(
-            "Login preset slots filled from bundled file (" + bundledLoginPresetsFetchUrl() + ")"
-          );
-        }
-        if (!mergedFromDisk && userPresetsMapHasSavedRows()) {
+        if (!mergedFromFile && userPresetsMapHasSavedRows()) {
           return flushLoginPresetsToDiskAsync().then(function (okFlush) {
             if (okFlush && typeof onLog === "function") {
-              onLog(
-                "Login presets synced from browser storage to save folder (" + LOGIN_RADIO_PRESETS_DISK_FILE + ")"
-              );
+              onLog("Login presets exported to " + LOGIN_RADIO_PRESETS_DISK_FILE);
             }
           });
         }
