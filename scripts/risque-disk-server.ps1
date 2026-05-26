@@ -16,12 +16,21 @@
 #>
 param(
     [Parameter(Mandatory = $true)][string]$SaveRoot,
+    [string]$GameRoot = "",
     [int]$Port = $(if ($env:RISQUE_DISK_PORT) { [int]$env:RISQUE_DISK_PORT } else { 5599 }),
     [string]$Bind = "127.0.0.1"
 )
 
 $ErrorActionPreference = "Stop"
 $script:Root = [System.IO.Path]::GetFullPath($SaveRoot.Trim())
+# Use a distinct script-scope name so the param ($GameRoot) is not overwritten before we read it.
+# At script top level, $GameRoot and $script:GameRoot alias the same slot, so a separate name is required.
+if ([string]::IsNullOrWhiteSpace($GameRoot)) {
+    $script:GameRootResolved = ""
+}
+else {
+    $script:GameRootResolved = [System.IO.Path]::GetFullPath($GameRoot.Trim())
+}
 
 function Send-RisqueDiskJson {
     param(
@@ -41,22 +50,35 @@ function Send-RisqueDiskJson {
     $Response.OutputStream.Close()
 }
 
+function Get-RisqueDiskRootFromKey {
+    param([string]$Key)
+    $k = if ($null -eq $Key) { "" } else { $Key.ToString().Trim().ToLowerInvariant() }
+    if ($k -eq "game") {
+        if ([string]::IsNullOrWhiteSpace($script:GameRootResolved)) {
+            throw "game root not configured"
+        }
+        return $script:GameRootResolved
+    }
+    return $script:Root
+}
+
 function Get-RisqueDiskSafeFullPath {
-    param([string]$Rel)
+    param([string]$Rel, [string]$RootKey = "save")
+    $rootPath = Get-RisqueDiskRootFromKey -Key $RootKey
     $norm = ($Rel -replace '/', [IO.Path]::DirectorySeparatorChar).Trim([IO.Path]::DirectorySeparatorChar)
     $parts = @($norm.Split([IO.Path]::DirectorySeparatorChar) | Where-Object { $_ -and $_ -ne '.' })
     if ($parts -contains '..') {
         throw "invalid path"
     }
-    $full = $script:Root
+    $full = $rootPath
     foreach ($p in $parts) {
         $full = Join-Path $full $p
     }
     $full = [System.IO.Path]::GetFullPath($full)
-    $rn = [System.IO.Path]::GetFullPath($script:Root)
+    $rn = [System.IO.Path]::GetFullPath($rootPath)
     if (-not ($full.Equals($rn, [StringComparison]::OrdinalIgnoreCase) -or
             $full.StartsWith($rn + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase))) {
-        throw "path outside save root"
+        throw "path outside root"
     }
     return $full
 }
@@ -72,7 +94,7 @@ catch {
     exit 1
 }
 
-[Console]::Error.WriteLine("risque-disk-server.ps1 saveRoot=$script:Root listen=$prefix")
+[Console]::Error.WriteLine("risque-disk-server.ps1 saveRoot=$script:Root gameRoot=$script:GameRootResolved listen=$prefix")
 
 while ($listener.IsListening) {
     try {
@@ -100,9 +122,11 @@ while ($listener.IsListening) {
             Send-RisqueDiskJson -Response $res -Object @{
                 ok                     = $true
                 saveRoot               = $script:Root
+                gameRoot               = $script:GameRootResolved
                 supportsRestartBrowser = $true
                 supportsWipeRoot       = $true
-                diskServerApiVersion   = 3
+                supportsGameRoot       = (-not [string]::IsNullOrWhiteSpace($script:GameRootResolved))
+                diskServerApiVersion   = 4
             }
             continue
         }
@@ -127,31 +151,33 @@ while ($listener.IsListening) {
 
         if ($apath -eq "/api/write") {
             $rel = [string]$body.path
+            $rootKey = if ($null -ne $body.root) { [string]$body.root } else { "save" }
             $content = $body.content
             if ($null -eq $content) { $content = "" }
             if ($content -isnot [string]) {
                 $content = ($content | ConvertTo-Json -Depth 100 -Compress)
             }
-            $full = Get-RisqueDiskSafeFullPath -Rel $rel
+            $full = Get-RisqueDiskSafeFullPath -Rel $rel -RootKey $rootKey
             $dir = Split-Path -Parent $full
             if (-not (Test-Path -LiteralPath $dir)) {
                 New-Item -ItemType Directory -Path $dir -Force | Out-Null
             }
             $utf8NoBom = New-Object System.Text.UTF8Encoding $false
             [System.IO.File]::WriteAllText($full, [string]$content, $utf8NoBom)
-            Send-RisqueDiskJson -Response $res -Object @{ ok = $true; path = $rel }
+            Send-RisqueDiskJson -Response $res -Object @{ ok = $true; path = $rel; root = $rootKey }
             continue
         }
 
         if ($apath -eq "/api/read") {
             $rel = [string]$body.path
-            $full = Get-RisqueDiskSafeFullPath -Rel $rel
+            $rootKey = if ($null -ne $body.root) { [string]$body.root } else { "save" }
+            $full = Get-RisqueDiskSafeFullPath -Rel $rel -RootKey $rootKey
             if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
                 Send-RisqueDiskJson -Response $res -Object @{ ok = $false; error = "not found" } -Code 404
                 continue
             }
             $txt = [System.IO.File]::ReadAllText($full, [System.Text.Encoding]::UTF8)
-            Send-RisqueDiskJson -Response $res -Object @{ ok = $true; content = $txt }
+            Send-RisqueDiskJson -Response $res -Object @{ ok = $true; content = $txt; root = $rootKey }
             continue
         }
 
