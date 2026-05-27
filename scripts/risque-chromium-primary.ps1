@@ -107,3 +107,61 @@ function Enter-RisqueChromiumF11Fullscreen {
     Add-Type -AssemblyName System.Windows.Forms
     [System.Windows.Forms.SendKeys]::SendWait("{F11}")
 }
+
+function Stop-RisqueCursorGuard {
+    $pidPath = Join-Path $env:TEMP "risque-cursor-guard.pid"
+    if (Test-Path -LiteralPath $pidPath) {
+        try {
+            $guardPid = [int](Get-Content -LiteralPath $pidPath -Raw).Trim()
+            if ($guardPid -gt 0) {
+                Stop-Process -Id $guardPid -Force -ErrorAction SilentlyContinue
+            }
+        }
+        catch { }
+        Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
+    }
+    try {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class RisqueCursorClipRelease {
+    [DllImport("user32.dll")] public static extern bool ClipCursor(IntPtr lpRect);
+    public static void Release() { ClipCursor(IntPtr.Zero); }
+}
+'@ -ErrorAction SilentlyContinue
+        [RisqueCursorClipRelease]::Release()
+    }
+    catch { }
+}
+
+function Start-RisqueCursorGuard {
+    param(
+        [Parameter(Mandatory)][System.Drawing.Rectangle]$PrimaryBounds,
+        [Parameter(Mandatory)][string]$ScriptsDirectory,
+        [Parameter(Mandatory)][string]$SaveRootPath
+    )
+    if ($env:RISQUE_NO_CURSOR_CLIP -eq '1') { return }
+    $guardScript = Join-Path $ScriptsDirectory "risque-cursor-guard.ps1"
+    if (-not (Test-Path -LiteralPath $guardScript)) {
+        Write-Warning "Cursor guard script missing: $guardScript"
+        return
+    }
+    Stop-RisqueCursorGuard
+    $b = $PrimaryBounds
+    $clipArg = "{0},{1},{2},{3}" -f $b.Left, $b.Top, ($b.Left + $b.Width), ($b.Top + $b.Height)
+    $statePath = Join-Path $SaveRootPath ".risque-cursor-guard-state.json"
+    $psArgs = @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-WindowStyle", "Hidden",
+        "-File", $guardScript,
+        "-ClipRect", $clipArg,
+        "-StatePath", $statePath
+    )
+    Start-Process -FilePath "powershell.exe" -ArgumentList $psArgs -WindowStyle Hidden | Out-Null
+    Write-Host ""
+    Write-Host "Cursor guard: mouse stays on the host (primary) display." -ForegroundColor DarkCyan
+    Write-Host "  Ctrl+Alt+Shift+M  =  allow cursor on the TV display (press again to re-lock)" -ForegroundColor DarkCyan
+    Write-Host "  Ctrl+Alt+Shift+C  =  center cursor on the monitor it is on" -ForegroundColor DarkCyan
+    Write-Host "  Public TV: no mirrored cursor until M unlocks (real cursor on TV only while unlocked)" -ForegroundColor DarkCyan
+}

@@ -3643,6 +3643,9 @@
         window.gameState.turnOrder = window.gameState.turnOrder.filter(function (name) {
           return name !== owner;
         });
+        if (typeof window.risqueRememberLuckySessionPlayer === "function") {
+          window.risqueRememberLuckySessionPlayer(window.gameState, owner);
+        }
         window.gameState.transferredCardCount = transferredCards.length;
       }
       if (type === 'book') {

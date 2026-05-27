@@ -678,6 +678,13 @@ function Invoke-RisqueDualMonitorBrowserLaunch {
         }
     }
 
+    try {
+        Start-RisqueCursorGuard -PrimaryBounds $primary.Bounds -ScriptsDirectory $ScriptsDirectory -SaveRootPath $DownloadPath
+    }
+    catch {
+        Write-Warning "Could not start cursor guard: $($_.Exception.Message)"
+    }
+
     Write-Host ""
     Write-Host "Dual-display launch complete. Saves: $DownloadPath  |  Browser: $browserLabel" -ForegroundColor Green
 }

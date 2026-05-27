@@ -4564,6 +4564,13 @@ html.risque-view-host .runtime-hud-root--host-panel-lucky-focus .risque-phase-co
   color: #bbf7d0;
   font-weight: 800;
 }
+.risque-host-lucky-out {
+  font-size: 0.85em;
+  font-weight: 600;
+  opacity: 0.65;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .runtime-hud-root--host-panel-lucky-focus #hud-main-panel .hud-stats-table th,
 .runtime-hud-root--host-panel-lucky-focus #hud-main-panel .hud-stats-table td {
   font-size: clamp(14px, 2vw, 22px) !important;
@@ -6936,8 +6943,41 @@ body.risque-view-host[data-risque-phase="reinforce"] .runtime-hud-root .attack-c
 }
 
 html.risque-view-host body[data-risque-phase="reinforce"] #control-voice.ucp-terminal.ucp-control-voice {
+  height: auto;
+  min-height: 200px;
+  max-height: min(48vh, 440px);
   border: 4px solid #00ff00;
   box-shadow: 0 0 14px rgba(0, 255, 0, 0.45);
+}
+
+html.risque-view-host body[data-risque-phase="reinforce"] .ucp-voice-messages {
+  justify-content: flex-start;
+  align-items: stretch;
+  padding-top: 10px;
+}
+
+html.risque-view-host body[data-risque-phase="reinforce"] #control-voice-text {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: 0.06em;
+}
+
+html.risque-view-host body[data-risque-phase="reinforce"] #control-voice-report.ucp-voice-report--reinforce-hud,
+html.risque-view-public body[data-risque-phase="reinforce"] #control-voice-report.ucp-voice-report--reinforce-hud {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.28;
+  letter-spacing: 0.04em;
+  color: #00ff00 !important;
+  margin-top: 10px;
+}
+
+html.risque-view-public body[data-risque-phase="reinforce"] #control-voice-text {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: 0.06em;
 }
 
 /* Reinforce: slot-strip echo buttons unused — troops # lives in reinforce panel when adjusting */
@@ -6986,80 +7026,20 @@ body.risque-view-host[data-risque-phase="reinforce"] .reinforce-row {
   align-items: stretch;
 }
 
-/* Map-pick hint + OR + SKIP (paired flash on arrival; same overall bar width as prior two-cell row) */
-body.risque-view-host[data-risque-phase="reinforce"] .reinforce-row--pick-hint-only {
+/* Skip only — map instructions live in control voice */
+body.risque-view-host[data-risque-phase="reinforce"] .reinforce-row--skip-only {
   grid-template-columns: 1fr;
   align-items: stretch;
   gap: 10px;
 }
 
-body.risque-view-host[data-risque-phase="reinforce"] .reinforce-pick-hint-unified {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 10px;
+body.risque-view-host[data-risque-phase="reinforce"] .reinforce-row--skip-only .reinforce-btn-skip-paired {
   width: 100%;
-  box-sizing: border-box;
-}
-
-body.risque-view-host[data-risque-phase="reinforce"] .reinforce-pick-hint-text {
-  margin: 0;
-  padding: 12px 14px;
-  box-sizing: border-box;
-  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
-  font-weight: 800;
-  line-height: 1.3;
-  color: #00ff00;
-  text-align: center;
-  background: rgba(5, 46, 22, 0.45);
-  border: 2px solid #00ff00;
-  border-radius: 4px;
-  min-height: 50px;
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-}
-
-body.risque-view-host[data-risque-phase="reinforce"] .reinforce-pick-hint-head {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  line-height: 1.2;
-  color: #00ff00;
-}
-
-body.risque-view-host[data-risque-phase="reinforce"] .reinforce-pick-or {
-  flex: 0 0 auto;
-  align-self: center;
-  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  color: #00ff00;
-  padding: 0 4px;
-  text-transform: uppercase;
-}
-
-body.risque-view-host[data-risque-phase="reinforce"] .reinforce-pick-hint-text.reinforce-pick-attention {
-  animation: risque-reinforce-pick-attention-flash 0.75s ease-in-out infinite;
-}
-
-body.risque-view-host[data-risque-phase="reinforce"] .reinforce-btn-compact.reinforce-pick-attention {
-  animation: risque-reinforce-pick-attention-flash 0.75s ease-in-out infinite;
-  position: relative;
-  z-index: 2;
 }
 
 body.risque-view-host[data-risque-phase="reinforce"] .reinforce-btn-skip-paired {
-  flex: 0 0 auto;
-  min-width: 5.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
   align-self: stretch;
 }
 
@@ -7183,6 +7163,27 @@ body.risque-view-host[data-risque-phase="reinforce"] .reinforce-btn-compact {
   min-height: 50px;
   padding: 12px 14px;
   text-transform: uppercase;
+}
+
+/* Reinforce: keep action buttons readable even when not yet applicable (no dim “must skip” look). */
+body.risque-view-host[data-risque-phase="reinforce"] .reinforce-btn-compact:disabled {
+  opacity: 1 !important;
+  cursor: not-allowed;
+  color: #00ff00 !important;
+  border-color: #00ff00 !important;
+  background: #0a1a0a !important;
+}
+
+body.risque-view-host[data-risque-phase="reinforce"] .reinforce-btn-protect:disabled {
+  color: #ecfdf5 !important;
+  border-color: #34d399 !important;
+  background: #0f3d2e !important;
+}
+
+body.risque-view-host[data-risque-phase="reinforce"] .reinforce-btn-split:disabled {
+  color: #e0f2fe !important;
+  border-color: #38bdf8 !important;
+  background: #1e293b !important;
 }
 
 /* Host (private): receive card — no dice row; voice + hand tight under stats */
@@ -8626,9 +8627,13 @@ body.risque-view-host.runtime-page {
   background: #000000 !important;
 }
 /*
- * Public TV: keep the real OS cursor visible (stage often fills the viewport — scoped cursor:none
- * still hid it everywhere). The host pointer duplicate (#risque-public-cursor-mirror) remains optional.
+ * Public TV: OS cursor hidden while cursor guard is locked (default). Ctrl+Alt+Shift+M unlocks the
+ * real cursor on the TV for setup; the duplicate #risque-public-cursor-mirror is not used.
  */
+body.risque-view-public[data-risque-tv-cursor-locked="1"],
+body.risque-view-public[data-risque-tv-cursor-locked="1"] * {
+  cursor: none !important;
+}
 
 /* Arrow matching default pointer — position set in JS from host-normalized coords */
 #risque-public-cursor-mirror {
@@ -8717,9 +8722,18 @@ html.risque-view-public .runtime-hud-root:not(.runtime-hud-root--login) #hud-ban
 }
 
 .risque-view-public body[data-risque-phase="cardplay"] #risque-phase-content,
-.risque-view-public body[data-risque-phase="con-cardplay"] #risque-phase-content {
+.risque-view-public body[data-risque-phase="con-cardplay"] #risque-phase-content,
+.risque-view-public body[data-risque-phase="deploy"] #risque-phase-content,
+.risque-view-public body[data-risque-phase="con-deploy"] #risque-phase-content {
   margin-top: 2px;
   min-height: 0;
+}
+
+/* Public TV — turn deploy: show private hint under banner; hide empty control stack until voice/anim */
+.risque-view-public body[data-risque-phase="deploy"] #hud-main-panel:not(:has(.risque-public-private-hint--deploy)):not(:has(#control-voice-text)),
+.risque-view-public body[data-risque-phase="con-deploy"] #hud-main-panel:not(:has(.risque-public-private-hint--deploy)):not(:has(#control-voice-text)),
+.risque-view-public body[data-risque-phase="reinforce"] #hud-main-panel:not(:has(.risque-public-private-hint--reinforce)):not(:has(.risque-public-private-hint--deploy)):not(:has(#control-voice-text)) {
+  display: none !important;
 }
 
 /*
@@ -8797,6 +8811,9 @@ html.risque-view-public
   object-fit: contain !important;
 }
 
+.risque-view-public body[data-risque-phase="deploy"] .risque-public-private-hint,
+.risque-view-public body[data-risque-phase="con-deploy"] .risque-public-private-hint,
+.risque-view-public body[data-risque-phase="reinforce"] .risque-public-private-hint,
 .risque-view-public body[data-risque-phase="cardplay"] .risque-public-private-hint,
 .risque-view-public body[data-risque-phase="con-cardplay"] .risque-public-private-hint {
   margin-top: 0;

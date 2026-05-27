@@ -6,6 +6,7 @@ REM  Runs scripts\RISQUE.ps1: ensures <drive>:\github\save (or RISQUE_DOWNLOAD_P
 REM  (local mode sets diskApiBase so DD.json / rNpM land in the save folder — one hidden save-helper on 127.0.0.1:5599),
 REM  Chromium download = save root, then asks: (1) Local game  (2) Hosted RISQUE-APOLLO on GitHub Pages.
 REM  Default: two windows — host on primary display, public TV on secondary (Win32 move + F11).
+REM  Cursor guard: mouse stays on primary; Ctrl+Alt+Shift+M toggles TV access; Ctrl+Alt+Shift+C centers cursor. RISQUE_NO_CURSOR_CLIP=1 disables.
 REM  Local pages are file://; the save helper is not a game web server.
 REM
 REM  Script folder:  %~dp0   (e.g. ...\RISQUE-APOLLO\scripts\)

@@ -188,7 +188,8 @@
       /* All player names for the session (survivors-only lists drop eliminated players postgame). */
       risqueLuckySessionRoster: filledRows.map(function (r) {
         return r.name;
-      })
+      }),
+      risqueLuckyEliminatedNames: []
     };
   }
 

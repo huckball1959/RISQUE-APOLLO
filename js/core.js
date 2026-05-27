@@ -1453,22 +1453,43 @@ window.gameUtils = {
           typeof gameState.risqueDeployMirrorDraft === 'object'
             ? gameState.risqueDeployMirrorDraft
             : null;
-        const effectiveDeployedTroops =
+        const pubDeployPlay =
           isPublicView &&
-          deployMirrorDraft &&
-          deployMirrorDraft.deltas &&
-          typeof deployMirrorDraft.deltas === 'object'
-            ? deployMirrorDraft.deltas
-            : deployedTroops;
+          window.__risquePublicDeployPlayback &&
+          typeof window.__risquePublicDeployPlayback === 'object'
+            ? window.__risquePublicDeployPlayback
+            : null;
+        const effectiveDeployedTroops =
+          pubDeployPlay && pubDeployPlay.revealedDeltas
+            ? pubDeployPlay.revealedDeltas
+            : isPublicView &&
+                deployMirrorDraft &&
+                deployMirrorDraft.deltas &&
+                typeof deployMirrorDraft.deltas === 'object'
+              ? deployMirrorDraft.deltas
+              : deployedTroops;
         const rawDeployDeltaForScale =
           effectiveDeployedTroops && effectiveDeployedTroops[label] != null
             ? Number(effectiveDeployedTroops[label])
             : 0;
         /* Only the current deployer’s territories use session deltas for bump / satellite (avoids stale mirror or handoff bugs). */
         const deployDelta =
-          playerName === gameState.currentPlayer && Number.isFinite(rawDeployDeltaForScale)
+          pubDeployPlay &&
+          pubDeployPlay.playerName &&
+          playerName === pubDeployPlay.playerName &&
+          Number.isFinite(rawDeployDeltaForScale)
             ? rawDeployDeltaForScale
-            : 0;
+            : playerName === gameState.currentPlayer && Number.isFinite(rawDeployDeltaForScale)
+              ? rawDeployDeltaForScale
+              : 0;
+        if (
+          pubDeployPlay &&
+          pubDeployPlay.troopOverrides &&
+          pubDeployPlay.troopOverrides[label] != null &&
+          Number.isFinite(Number(pubDeployPlay.troopOverrides[label]))
+        ) {
+          troops = Number(pubDeployPlay.troopOverrides[label]);
+        }
         const isDeployed =
           window.viewTroopsActive &&
           (effectiveDeployedTroops[label] || 0) > 0 &&
@@ -1610,7 +1631,11 @@ window.gameUtils = {
         if (replayBattleFlash) {
           surface.classList.add('risque-replay-battle-flash');
         }
-        const isDeployPhase = gameState && String(gameState.phase) === 'deploy';
+        const isDeployPhase =
+          gameState &&
+          (String(gameState.phase) === 'deploy' ||
+            String(gameState.phase) === 'con-deploy' ||
+            !!pubDeployPlay);
         const deployMirrorSelected =
           isPublicView &&
           deployMirrorDraft &&
@@ -1621,6 +1646,7 @@ window.gameUtils = {
         const deployTerritorySelected =
           isDeployPhase &&
           playerName === gameState.currentPlayer &&
+          !pubDeployPlay &&
           (isPublicView ? deployMirrorSelected === label : window.selectedTerritory === label);
         if (deployTerritorySelected) {
           surface.classList.add('selected');
@@ -2045,7 +2071,11 @@ window.gameUtils = {
         }
         /* Host + public TV: show +N satellite when deploy deltas exist (public uses risqueDeployMirrorDraft.deltas). */
         const showDeploySatellite =
-          isDeployPhase && playerName === gameState.currentPlayer && deployDelta > 0;
+          isDeployPhase &&
+          deployDelta > 0 &&
+          (pubDeployPlay && pubDeployPlay.playerName
+            ? playerName === pubDeployPlay.playerName
+            : playerName === gameState.currentPlayer);
         if (showDeploySatellite) {
           const deltaLabel = '+' + String(deployDelta);
           const satFont = 21;
@@ -2733,7 +2763,9 @@ window.risqueDeployBankReport = function (player) {
  */
 window.risqueRefreshDeployNarration = function (gameState, opts) {
   opts = opts || {};
-  if (!gameState || String(gameState.phase) !== 'deploy') return;
+  var phDep = String(gameState && gameState.phase ? gameState.phase : '');
+  if (!gameState || (phDep !== 'deploy' && phDep !== 'con-deploy')) return;
+  if (gameState.risqueDeploySuppressPublicSpectator === true) return;
   if (!window.risqueRuntimeHud || typeof window.risqueRuntimeHud.setControlVoiceText !== 'function') return;
   var player =
     gameState.players && gameState.players.find(function (p) {

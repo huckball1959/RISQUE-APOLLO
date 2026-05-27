@@ -8,8 +8,11 @@
   var PUBLIC_MIRROR_KEY = "risquePublicMirrorState";
   /** Public TV page public-conquest-bridge.html sets this; host advances to conquer / card transfer. */
   var PUBLIC_CONQUEST_CONTINUE_REQ_KEY = "risquePublicConquestContinueRequest";
-  /** Host pointer position (normalized to #canvas rect) for duplicate cursor on public TV. */
+  /** Host pointer position (normalized to #canvas rect) for duplicate cursor on public TV (legacy; disabled by default). */
   var PUBLIC_CURSOR_MIRROR_KEY = "risquePublicCursorMirror";
+  /** Synced from .risque-cursor-guard-state.json via host poll; { clipped: true|false }. */
+  var CURSOR_GUARD_STATE_LS_KEY = "risqueCursorGuardState";
+  var CURSOR_GUARD_STATE_FILE = ".risque-cursor-guard-state.json";
   var LOG_KEY = "gameLogs";
   var LEDGER_KEY = "risqueTransitionLedger";
   var ROUND_AUTOSAVE_KEY = "risqueRoundAutosaves";
@@ -1426,6 +1429,31 @@
     }
   };
 
+  function risqueMirrorDeployRouteIsTurn() {
+    try {
+      var dr = localStorage.getItem(MIRROR_DEPLOY_ROUTE_KEY);
+      return dr === "turn" || dr === "deploy2";
+    } catch (eDr) {
+      return false;
+    }
+  }
+
+  function risqueTurnDeployMirrorPhase(ph) {
+    return ph === "deploy" || ph === "con-deploy";
+  }
+
+  function risqueReinforcePrivateMirrorPhase(ph) {
+    return ph === "reinforce";
+  }
+
+  /** Host drafts troops privately; public TV gets frozen board until confirm reveal. */
+  function risqueFrozenPublicBoardMirrorActive(ph) {
+    return (
+      (risqueMirrorDeployRouteIsTurn() && risqueTurnDeployMirrorPhase(ph)) ||
+      risqueReinforcePrivateMirrorPhase(ph)
+    );
+  }
+
   function resolveDeployKindForHost() {
     if (deployKindQuery === "setup" || deployKindQuery === "turn") {
       return deployKindQuery;
@@ -1539,6 +1567,22 @@
     shelfStagingKey: null,
     /** Host shelf aerial confirm/counter UI: interval id for enable/disable sync. */
     hostShelfAerialUiPoll: null
+  };
+
+  var DEPLOY_PUBLIC_RECAP_ACK_KEY = "risquePublicDeployRecapAck";
+  var DEPLOY_PUBLIC_STEP_MS = 500;
+  var DEPLOY_PUBLIC_HOLD_MS = 1500;
+  var DEPLOY_PUBLIC_INTRO_MS = 400;
+  var _pubDeploy = {
+    seq: null,
+    phase: "idle",
+    stepIndex: 0,
+    proc: null,
+    stepTimer: null,
+    holdTimer: null,
+    introTimer: null,
+    revealedDeltas: null,
+    troopOverrides: null
   };
 
   /**
@@ -1882,6 +1926,7 @@
     /* MUST keep risquePublicBookProcessing + risquePublicCardplayRecap during cardplay: without them the
      * public tab never runs book steps, so risquePublicAerialDecisionReady / recap ack never arrive and
      * the host aerial-confirm gate deadlocks (worse as STORAGE_KEY grows toward quota). */
+    /* MUST keep risquePublicDeployProcessing during turn deploy or TV never acks and host locks. */
     delete lite.risquePublicLoginFormMirror;
     delete lite.risqueReplayTape;
     delete lite.risqueReplayByRound;
@@ -1959,6 +2004,17 @@
         delete forDisk.risquePublicCardplaySpectatorHandCount;
         delete forDisk.risquePublicCardplaySpectatorPlayer;
       }
+      if (!risqueFrozenPublicBoardMirrorActive(String(gs.phase || ""))) {
+        delete forDisk.risquePublicDeployProcessing;
+        delete forDisk.risquePublicDeployAckRequiredSeq;
+        delete forDisk.risqueDeployUseFrozenPublicMirror;
+        delete forDisk.risqueDeployPublicMirrorSnapshot;
+        delete forDisk.risqueDeploySuppressPublicSpectator;
+        delete forDisk.risqueDeployTurnTroopBaseline;
+        delete forDisk.risqueDeployTvRecapPublished;
+        delete forDisk.risqueDeployPublishPendingConTransfer;
+        delete forDisk.risquePublicSkipConTransferMirror;
+      }
       var forDiskJson = JSON.stringify(forDisk);
       if (!risqueTryWriteLocalStorageWithQuotaFallback(STORAGE_KEY, forDiskJson)) {
         var emergencyDisk = risqueBuildEmergencyStorageState(forDisk);
@@ -1999,7 +2055,45 @@
         }
         delete out.risqueControlVoice;
       }
-      if (String(out.phase || "") === "deploy") {
+      var phMir = String(out.phase || "");
+      var frozenBoardMir = risqueFrozenPublicBoardMirrorActive(phMir);
+      if (frozenBoardMir) {
+        /* Never assign snap.players onto `out` when out === gs — that rewinds live host troops every push. */
+        if (out === gs) {
+          out =
+            typeof window.risqueCloneGameStateOmitReplayKeys === "function"
+              ? window.risqueCloneGameStateOmitReplayKeys(gs)
+              : null;
+          if (!out) {
+            out = JSON.parse(JSON.stringify(gs));
+          }
+        }
+        delete out.risqueDeployMirrorDraft;
+        delete out.risqueReinforcePreview;
+        delete out.risqueTransferPulse;
+        if (Array.isArray(out.risqueSpectatorFocusLabels)) {
+          out.risqueSpectatorFocusLabels = [];
+        } else {
+          delete out.risqueSpectatorFocusLabels;
+        }
+        var depSnap = gs.risqueDeployPublicMirrorSnapshot;
+        var freezeDeployBoard =
+          gs.risqueDeployUseFrozenPublicMirror === true || !!gs.risquePublicDeployProcessing;
+        if (
+          freezeDeployBoard &&
+          depSnap &&
+          depSnap.players &&
+          Array.isArray(depSnap.players)
+        ) {
+          out.players = JSON.parse(JSON.stringify(depSnap.players));
+        }
+        if (gs.risqueDeploySuppressPublicSpectator === true) {
+          if (Array.isArray(out.risqueCombatLogTail)) {
+            out.risqueCombatLogTail = [];
+          }
+          delete out.risqueControlVoice;
+        }
+      } else if (phMir === "deploy") {
         var depDraft = window.deployedTroops || {};
         var deltasCopy = {};
         Object.keys(depDraft).forEach(function (k) {
@@ -2015,6 +2109,13 @@
         };
       } else {
         delete out.risqueDeployMirrorDraft;
+      }
+      if (
+        !window.risqueDisplayIsPublic &&
+        phMir === "con-transfertroops" &&
+        gs.risquePublicSkipConTransferMirror === true
+      ) {
+        out.phase = "attack";
       }
       /* Unique payload every push so the TV tab always sees a change (storage events + polling). */
       var mirrorPayload;
@@ -2324,68 +2425,93 @@
     }
   }
 
-  var __risqueCursorMirrorSeq = 0;
-  var __risqueCursorMirrorRaf = null;
-  var __risqueCursorMirrorPending = null;
+  function risqueParseCursorGuardStateJson(text) {
+    var o = tryParse(text);
+    if (!o || typeof o !== "object") return { clipped: true };
+    return { clipped: o.clipped !== false };
+  }
 
-  function risquePublicApplyCursorMirror() {
+  /** True when Ctrl+Alt+Shift+M has unlocked the cursor to the TV display. */
+  function risqueTvCursorAccessAllowedFromLs() {
+    try {
+      var raw = localStorage.getItem(CURSOR_GUARD_STATE_LS_KEY);
+      if (!raw) return false;
+      return risqueParseCursorGuardStateJson(raw).clipped === false;
+    } catch (eLs) {
+      return false;
+    }
+  }
+
+  function risquePublishCursorGuardStateToLocalStorage(clipped) {
+    try {
+      localStorage.setItem(
+        CURSOR_GUARD_STATE_LS_KEY,
+        JSON.stringify({ clipped: !!clipped, at: Date.now() })
+      );
+    } catch (ePub) {
+      /* ignore */
+    }
+  }
+
+  /** Host / Moonlight: write cursor-guard state (background helper polls this file). */
+  function risqueHostSetCursorGuardClipped(clipped) {
+    risquePublishCursorGuardStateToLocalStorage(clipped);
+    if (typeof window.risqueLocalDiskWrite !== "function") {
+      return Promise.resolve(false);
+    }
+    var payload = JSON.stringify({ clipped: !!clipped, updated: new Date().toISOString() });
+    return window
+      .risqueLocalDiskWrite(CURSOR_GUARD_STATE_FILE, payload)
+      .then(function () {
+        return true;
+      })
+      .catch(function () {
+        return false;
+      });
+  }
+
+  window.risqueHostSetCursorGuardClipped = risqueHostSetCursorGuardClipped;
+
+  function risqueSyncCursorGuardStateFromDisk() {
+    if (typeof window.risqueLocalDiskRead !== "function") {
+      return Promise.resolve();
+    }
+    return window
+      .risqueLocalDiskRead(CURSOR_GUARD_STATE_FILE)
+      .then(function (r) {
+        if (r && r.ok && r.content != null) {
+          risquePublishCursorGuardStateToLocalStorage(risqueParseCursorGuardStateJson(String(r.content)).clipped);
+          return;
+        }
+        risquePublishCursorGuardStateToLocalStorage(true);
+      })
+      .catch(function () {
+        risquePublishCursorGuardStateToLocalStorage(true);
+      });
+  }
+
+  function risqueClearPublicCursorMirrorPayload() {
+    try {
+      localStorage.setItem(PUBLIC_CURSOR_MIRROR_KEY, JSON.stringify({ v: 2, seq: 0, in: false }));
+    } catch (eClr) {
+      /* ignore */
+    }
+  }
+
+  /** Public TV: hide duplicate mirror; hide OS cursor unless guard unlocked (M hotkey). */
+  function risqueApplyPublicTvCursorPolicy() {
     if (!window.risqueDisplayIsPublic) return;
     var el = document.getElementById("risque-public-cursor-mirror");
-    if (!el) return;
-    var hidePrivate = document.body.getAttribute("data-risque-public-hide-cursor") === "1";
-    var raw;
-    try {
-      raw = localStorage.getItem(PUBLIC_CURSOR_MIRROR_KEY);
-    } catch (e) {
-      return;
-    }
-    if (!raw) {
-      el.classList.remove("risque-public-cursor-mirror--visible");
-      return;
-    }
-    var o = tryParse(raw);
-    if (!o || (o.v !== 1 && o.v !== 2)) {
-      el.classList.remove("risque-public-cursor-mirror--visible");
-      return;
-    }
-    if (hidePrivate || o.in === false) {
-      el.classList.remove("risque-public-cursor-mirror--visible");
-      return;
-    }
-    var nx = Number(o.nx);
-    var ny = Number(o.ny);
-    if (!Number.isFinite(nx) || !Number.isFinite(ny)) {
-      el.classList.remove("risque-public-cursor-mirror--visible");
-      return;
-    }
-    var x;
-    var y;
-    if (o.v === 2) {
-      var boardEl = document.getElementById("canvas");
-      if (!boardEl) {
-        el.classList.remove("risque-public-cursor-mirror--visible");
-        return;
-      }
-      var br = boardEl.getBoundingClientRect();
-      if (br.width < 1 || br.height < 1) {
-        el.classList.remove("risque-public-cursor-mirror--visible");
-        return;
-      }
-      x = br.left + nx * br.width;
-      y = br.top + ny * br.height;
+    if (el) el.classList.remove("risque-public-cursor-mirror--visible");
+    if (risqueTvCursorAccessAllowedFromLs()) {
+      document.body.removeAttribute("data-risque-tv-cursor-locked");
     } else {
-      var iw = window.innerWidth;
-      var ih = window.innerHeight;
-      if (iw < 2 || ih < 2) {
-        el.classList.remove("risque-public-cursor-mirror--visible");
-        return;
-      }
-      x = nx * iw;
-      y = ny * ih;
+      document.body.setAttribute("data-risque-tv-cursor-locked", "1");
     }
-    el.style.left = x + "px";
-    el.style.top = y + "px";
-    el.classList.add("risque-public-cursor-mirror--visible");
+  }
+
+  function risquePublicApplyCursorMirror() {
+    risqueApplyPublicTvCursorPolicy();
   }
 
   function installRisquePublicCursorMirrorTracking() {
@@ -2396,99 +2522,37 @@
       el.setAttribute("aria-hidden", "true");
       document.body.appendChild(el);
       window.addEventListener("storage", function (ev) {
-        if (ev.key === PUBLIC_CURSOR_MIRROR_KEY) {
-          risquePublicApplyCursorMirror();
+        if (ev.key === CURSOR_GUARD_STATE_LS_KEY || ev.key === PUBLIC_CURSOR_MIRROR_KEY) {
+          risqueApplyPublicTvCursorPolicy();
         }
       });
       window.addEventListener("resize", function () {
-        risquePublicApplyCursorMirror();
+        risqueApplyPublicTvCursorPolicy();
       });
-      setInterval(risquePublicApplyCursorMirror, 25);
-      requestAnimationFrame(risquePublicApplyCursorMirror);
+      setInterval(risqueApplyPublicTvCursorPolicy, 100);
+      requestAnimationFrame(risqueApplyPublicTvCursorPolicy);
       return;
     }
 
-    document.addEventListener(
-      "mousemove",
-      function (ev) {
-        __risqueCursorMirrorPending = { clientX: ev.clientX, clientY: ev.clientY };
-        if (__risqueCursorMirrorRaf) return;
-        __risqueCursorMirrorRaf = requestAnimationFrame(function () {
-          __risqueCursorMirrorRaf = null;
-          if (!__risqueCursorMirrorPending) return;
-          var cx = __risqueCursorMirrorPending.clientX;
-          var cy = __risqueCursorMirrorPending.clientY;
-          __risqueCursorMirrorPending = null;
-          var hudRoot = document.getElementById("runtime-hud-root");
-          var overHud = false;
-          if (hudRoot) {
-            var hr = hudRoot.getBoundingClientRect();
-            overHud =
-              hr.width > 0 &&
-              hr.height > 0 &&
-              cx >= hr.left &&
-              cx <= hr.right &&
-              cy >= hr.top &&
-              cy <= hr.bottom;
-          }
-          var boardEl = document.getElementById("canvas");
-          var nx = 0;
-          var ny = 0;
-          var ver = 2;
-          if (boardEl) {
-            var br = boardEl.getBoundingClientRect();
-            if (br.width > 0 && br.height > 0) {
-              nx = (cx - br.left) / br.width;
-              ny = (cy - br.top) / br.height;
-            } else {
-              ver = 1;
-              var iw = window.innerWidth;
-              var ih = window.innerHeight;
-              if (iw < 2 || ih < 2) return;
-              nx = cx / iw;
-              ny = cy / ih;
-            }
-          } else {
-            ver = 1;
-            var iwF = window.innerWidth;
-            var ihF = window.innerHeight;
-            if (iwF < 2 || ihF < 2) return;
-            nx = cx / iwF;
-            ny = cy / ihF;
-          }
-          /* v2: normalized to #canvas so public TV matches the map regardless of HUD width or window size. */
-          var payload = {
-            v: ver,
-            seq: (++__risqueCursorMirrorSeq) % 10000000,
-            in: !overHud,
-            nx: nx,
-            ny: ny
-          };
-          try {
-            localStorage.setItem(PUBLIC_CURSOR_MIRROR_KEY, JSON.stringify(payload));
-          } catch (eSet) {
-            /* ignore */
-          }
-        });
-      },
-      true
-    );
+    risqueClearPublicCursorMirrorPayload();
+  }
 
-    document.addEventListener(
-      "mouseleave",
-      function (ev) {
-        if (ev.target !== document.documentElement && ev.target !== document.body) return;
+  function installRisqueCursorGuardStateHostSync() {
+    if (window.risqueDisplayIsPublic) return;
+    function tick() {
+      risqueSyncCursorGuardStateFromDisk().then(function () {
         try {
-          localStorage.setItem(
-            PUBLIC_CURSOR_MIRROR_KEY,
-            JSON.stringify({ v: 1, seq: (++__risqueCursorMirrorSeq) % 10000000, in: false })
-          );
-        } catch (eLv) {
+          localStorage.setItem(PUBLIC_CURSOR_MIRROR_KEY, JSON.stringify({ v: 2, seq: 0, in: false }));
+        } catch (eTick) {
           /* ignore */
         }
-      },
-      true
-    );
+      });
+    }
+    tick();
+    setInterval(tick, 250);
+    window.addEventListener("storage", function (ev) {
+      if (ev.key === CURSOR_GUARD_STATE_LS_KEY) tick();
+    });
   }
 
   /**
@@ -2950,6 +3014,63 @@
   window.risqueRenderHostCardsPlayedPanel = risqueRenderHostCardsPlayedPanel;
   window.risqueRenderHostCardsInHandPanel = risqueRenderHostCardsInHandPanel;
 
+  function risqueDefaultLuckyLedgerRow() {
+    return { dice: 0, sixes: 0, rollSum: 0, roundWins: 0, roundLosses: 0, roundTies: 0 };
+  }
+
+  function risqueEnsureLuckyLedgerRow(by, name) {
+    if (!by[name]) {
+      by[name] = risqueDefaultLuckyLedgerRow();
+    } else {
+      if (by[name].rollSum == null) by[name].rollSum = 0;
+    }
+  }
+
+  function risqueMergeLuckySessionRoster(gs) {
+    if (!gs || typeof gs !== "object") return;
+    ensureLuckyLedger(gs);
+    var roster = Array.isArray(gs.risqueLuckySessionRoster) ? gs.risqueLuckySessionRoster.slice() : [];
+    var seen = {};
+    roster.forEach(function (nm0) {
+      var n = nm0 != null ? String(nm0).trim() : "";
+      if (n) seen[n] = true;
+    });
+    function addName(nm) {
+      var n = nm != null ? String(nm).trim() : "";
+      if (!n || seen[n]) return;
+      seen[n] = true;
+      roster.push(n);
+      risqueEnsureLuckyLedgerRow(gs.risqueLuckyLedger.byPlayer, n);
+    }
+    Object.keys(gs.risqueLuckyLedger.byPlayer || {}).forEach(addName);
+    if (Array.isArray(gs.risqueLuckyEliminatedNames)) {
+      gs.risqueLuckyEliminatedNames.forEach(addName);
+    }
+    var ti;
+    for (ti = 0; ti < (gs.turnOrder || []).length; ti++) {
+      addName(gs.turnOrder[ti]);
+    }
+    for (ti = 0; ti < (gs.players || []).length; ti++) {
+      addName(gs.players[ti] && gs.players[ti].name);
+    }
+    gs.risqueLuckySessionRoster = roster;
+  }
+
+  /** Keep eliminated players on the LUCKY roster for the rest of the session. */
+  function risqueRememberLuckySessionPlayer(gs, playerName) {
+    if (!gs || !playerName) return;
+    ensureLuckyLedger(gs);
+    var nm = String(playerName).trim();
+    if (!nm) return;
+    if (!Array.isArray(gs.risqueLuckyEliminatedNames)) {
+      gs.risqueLuckyEliminatedNames = [];
+    }
+    if (gs.risqueLuckyEliminatedNames.indexOf(nm) === -1) {
+      gs.risqueLuckyEliminatedNames.push(nm);
+    }
+    risqueMergeLuckySessionRoster(gs);
+  }
+
   function ensureLuckyLedger(gs) {
     if (!gs || typeof gs !== "object") return;
     if (!gs.risqueLuckyLedger || typeof gs.risqueLuckyLedger !== "object") {
@@ -2963,17 +3084,13 @@
     (gs.players || []).forEach(function (p) {
       var n = p && p.name ? String(p.name) : "";
       if (!n) return;
-      if (!by[n]) {
-        by[n] = { dice: 0, sixes: 0, roundWins: 0, roundLosses: 0, roundTies: 0 };
-      }
+      risqueEnsureLuckyLedgerRow(by, n);
     });
     var roster = Array.isArray(gs.risqueLuckySessionRoster) ? gs.risqueLuckySessionRoster : [];
     roster.forEach(function (nm0) {
       var n = nm0 != null ? String(nm0) : "";
       if (!n) return;
-      if (!by[n]) {
-        by[n] = { dice: 0, sixes: 0, roundWins: 0, roundLosses: 0, roundTies: 0 };
-      }
+      risqueEnsureLuckyLedgerRow(by, n);
     });
   }
 
@@ -2984,22 +3101,28 @@
     var defName = snap.opponent && snap.opponent.name ? String(snap.opponent.name) : "";
     if (!atkName || !defName) return;
     var L = gs.risqueLuckyLedger.byPlayer;
-    if (!L[atkName]) {
-      L[atkName] = { dice: 0, sixes: 0, roundWins: 0, roundLosses: 0, roundTies: 0 };
-    }
-    if (!L[defName]) {
-      L[defName] = { dice: 0, sixes: 0, roundWins: 0, roundLosses: 0, roundTies: 0 };
-    }
+    risqueEnsureLuckyLedgerRow(L, atkName);
+    risqueEnsureLuckyLedgerRow(L, defName);
+    risqueRememberLuckySessionPlayer(gs, atkName);
+    risqueRememberLuckySessionPlayer(gs, defName);
     var ar = snap.attackerRolls || [];
     var dr = snap.defenderRolls || [];
     var i;
     for (i = 0; i < ar.length; i++) {
       L[atkName].dice++;
-      if (Number(ar[i]) === 6) L[atkName].sixes++;
+      var av = Number(ar[i]);
+      if (Number.isFinite(av)) {
+        L[atkName].rollSum = (Number(L[atkName].rollSum) || 0) + av;
+        if (av === 6) L[atkName].sixes++;
+      }
     }
     for (i = 0; i < dr.length; i++) {
       L[defName].dice++;
-      if (Number(dr[i]) === 6) L[defName].sixes++;
+      var dv = Number(dr[i]);
+      if (Number.isFinite(dv)) {
+        L[defName].rollSum = (Number(L[defName].rollSum) || 0) + dv;
+        if (dv === 6) L[defName].sixes++;
+      }
     }
     var al = Number(snap.attackerLosses) || 0;
     var dl = Number(snap.defenderLosses) || 0;
@@ -3023,150 +3146,129 @@
       .replace(/"/g, "&quot;");
   }
 
+  function risqueLuckyMeanRoll(row) {
+    var d = Number(row && row.dice) || 0;
+    if (d < 1) return -1;
+    var sum = Number(row.rollSum);
+    if (!Number.isFinite(sum)) return -1;
+    return sum / d;
+  }
+
+  function risqueLuckyPlayerIsActive(gs, pname) {
+    if (!gs || !pname) return false;
+    if ((gs.turnOrder || []).indexOf(pname) >= 0) return true;
+    var pi;
+    for (pi = 0; pi < (gs.players || []).length; pi++) {
+      if (gs.players[pi] && gs.players[pi].name === pname) return true;
+    }
+    return false;
+  }
+
+  function risqueLuckyPlayerCell(gs, pname) {
+    var html = escapeHtmlLucky(pname);
+    if (!risqueLuckyPlayerIsActive(gs, pname)) {
+      html += ' <span class="risque-host-lucky-out">(out)</span>';
+    }
+    return html;
+  }
+
+  function risqueLuckyFormatLeaderLine(names, valueText) {
+    if (!names || !names.length) return "—";
+    return (
+      names
+        .map(function (n) {
+          return "<strong>" + escapeHtmlLucky(n) + "</strong>";
+        })
+        .join(", ") +
+      (valueText != null && valueText !== "" ? " — " + valueText : "")
+    );
+  }
+
+  function risqueLuckyPickLeaders(sortable, scoreFn, requirePositive) {
+    var best = -Infinity;
+    var names = [];
+    var jL;
+    for (jL = 0; jL < sortable.length; jL++) {
+      var v = scoreFn(sortable[jL]);
+      if (!Number.isFinite(v)) continue;
+      if (requirePositive && v <= 0) continue;
+      if (v > best) {
+        best = v;
+        names = [sortable[jL].pname];
+      } else if (v === best) {
+        names.push(sortable[jL].pname);
+      }
+    }
+    if (!names.length) return { names: [], value: -1 };
+    return { names: names, value: best };
+  }
+
   function risqueRenderHostLuckyPanel(gs) {
     var el = document.getElementById("risque-host-lucky-panel");
     if (!el) return;
     ensureLuckyLedger(gs);
+    risqueMergeLuckySessionRoster(gs);
     var by = (gs && gs.risqueLuckyLedger && gs.risqueLuckyLedger.byPlayer) || {};
-    /* Session roster lists everyone who started; turnOrder/players shrink post-elimination/postgame. */
-    var order = [];
-    var seen = {};
-    var ai;
-    function pushLuckyOrder(nm) {
-      if (!nm || seen[nm]) return;
-      seen[nm] = true;
-      order.push(nm);
-      if (!by[nm]) {
-        by[nm] = { dice: 0, sixes: 0, roundWins: 0, roundLosses: 0, roundTies: 0 };
-      }
-    }
-    var roster = gs && Array.isArray(gs.risqueLuckySessionRoster) ? gs.risqueLuckySessionRoster : [];
-    for (ai = 0; ai < roster.length; ai++) {
-      var rn = roster[ai];
-      if (rn) pushLuckyOrder(String(rn));
-    }
-    var keys = Object.keys(by);
-    for (ai = 0; ai < keys.length; ai++) {
-      pushLuckyOrder(keys[ai]);
-    }
-    if (gs && Array.isArray(gs.turnOrder)) {
-      for (ai = 0; ai < gs.turnOrder.length; ai++) {
-        pushLuckyOrder(gs.turnOrder[ai]);
-      }
-    }
-    if (gs && Array.isArray(gs.players)) {
-      for (ai = 0; ai < gs.players.length; ai++) {
-        pushLuckyOrder(gs.players[ai] && gs.players[ai].name);
-      }
-    }
+    var order = Array.isArray(gs.risqueLuckySessionRoster) ? gs.risqueLuckySessionRoster.slice() : [];
     var sortable = [];
     var j;
     for (j = 0; j < order.length; j++) {
       var pname0 = order[j];
-      var row0 = by[pname0] || { dice: 0, sixes: 0, roundWins: 0, roundLosses: 0, roundTies: 0 };
+      var row0 = by[pname0] || risqueDefaultLuckyLedgerRow();
       var d0 = Number(row0.dice) || 0;
       var s0 = Number(row0.sixes) || 0;
       var w0 = Number(row0.roundWins) || 0;
       var l0 = Number(row0.roundLosses) || 0;
       var dec0 = w0 + l0;
-      var sixRate0 = d0 > 0 ? s0 / d0 : -1;
+      var avgRoll0 = risqueLuckyMeanRoll(row0);
       var winRate0 = dec0 > 0 ? w0 / dec0 : -1;
-      sortable.push({ pname: pname0, row: row0, sixRate: sixRate0, winRate: winRate0 });
+      sortable.push({
+        pname: pname0,
+        row: row0,
+        avgRoll: avgRoll0,
+        winRate: winRate0,
+        sixTotal: s0
+      });
     }
     sortable.sort(function (a, b) {
-      if (b.sixRate !== a.sixRate) return b.sixRate - a.sixRate;
+      var aAvg = Number.isFinite(a.avgRoll) ? a.avgRoll : -1;
+      var bAvg = Number.isFinite(b.avgRoll) ? b.avgRoll : -1;
+      if (bAvg !== aAvg) return bAvg - aAvg;
+      if (b.sixTotal !== a.sixTotal) return b.sixTotal - a.sixTotal;
       if (b.winRate !== a.winRate) return b.winRate - a.winRate;
       return String(a.pname).localeCompare(String(b.pname));
     });
+    var sixLeaders = risqueLuckyPickLeaders(sortable, function (ent) {
+      return Number(ent.row.sixes) || 0;
+    }, true);
+    var avgLeaders = risqueLuckyPickLeaders(sortable, function (ent) {
+      return ent.avgRoll;
+    }, false);
+    var winLeaders = risqueLuckyPickLeaders(sortable, function (ent) {
+      return Number(ent.row.roundWins) || 0;
+    }, false);
+    var mostSixesLine = risqueLuckyFormatLeaderLine(sixLeaders.names, String(sixLeaders.value));
+    var bestAvgLine =
+      avgLeaders.names.length && Number.isFinite(avgLeaders.value)
+        ? risqueLuckyFormatLeaderLine(avgLeaders.names, avgLeaders.value.toFixed(2))
+        : "—";
+    var mostWinsLine = risqueLuckyFormatLeaderLine(winLeaders.names, String(winLeaders.value));
     var postgameBlock = "";
-    var isPostgame = gs && String(gs.phase || "") === "postgame";
-    if (isPostgame && sortable.length >= 1) {
-      var maxSixesVal = -1;
-      var maxSixesNames = [];
-      var maxWinsVal = -1;
-      var maxWinsNames = [];
-      var jh;
-      for (jh = 0; jh < sortable.length; jh++) {
-        var rH = sortable[jh].row;
-        var sH = Number(rH.sixes) || 0;
-        var wH = Number(rH.roundWins) || 0;
-        var pH = sortable[jh].pname;
-        if (sH > maxSixesVal) {
-          maxSixesVal = sH;
-          maxSixesNames = [pH];
-        } else if (sH === maxSixesVal && sH > 0) {
-          maxSixesNames.push(pH);
-        }
-        if (wH > maxWinsVal) {
-          maxWinsVal = wH;
-          maxWinsNames = [pH];
-        } else if (wH === maxWinsVal) {
-          maxWinsNames.push(pH);
-        }
-      }
-      var pgParts = [];
-      pgParts.push(
-        '<p class="risque-host-lucky-postgame-title">Game over — luck summary</p>'
-      );
-      if (maxSixesVal > 0 && maxSixesNames.length) {
-        pgParts.push(
-          '<p class="risque-host-lucky-postgame-line">Most <strong>sixes</strong> (total): ' +
-            maxSixesNames
-              .map(function (n) {
-                return "<strong>" + escapeHtmlLucky(n) + "</strong>";
-              })
-              .join(", ") +
-            " — " +
-            maxSixesVal +
-            "</p>"
-        );
-      }
-      if (maxWinsVal >= 0 && maxWinsNames.length) {
-        pgParts.push(
-          '<p class="risque-host-lucky-postgame-line">Most <strong>wins</strong> (rounds): ' +
-            maxWinsNames
-              .map(function (n) {
-                return "<strong>" + escapeHtmlLucky(n) + "</strong>";
-              })
-              .join(", ") +
-            " — " +
-            maxWinsVal +
-            "</p>"
-        );
-      }
-      if (pgParts.length > 1) {
-        postgameBlock =
-          '<div class="risque-host-lucky-postgame" role="status">' + pgParts.join("") + "</div>";
-      }
+    if (gs && String(gs.phase || "") === "postgame" && sortable.length >= 1) {
+      postgameBlock =
+        '<div class="risque-host-lucky-postgame" role="status">' +
+        '<p class="risque-host-lucky-postgame-title">Game over — luck summary</p>' +
+        '<p class="risque-host-lucky-postgame-line">Most <strong>sixes</strong> (total): ' +
+        mostSixesLine +
+        "</p>" +
+        '<p class="risque-host-lucky-postgame-line">Best <strong>average roll</strong>: ' +
+        bestAvgLine +
+        "</p>" +
+        '<p class="risque-host-lucky-postgame-line">Most <strong>battle wins</strong>: ' +
+        mostWinsLine +
+        "</p>" +
+        "</div>";
     }
-    var maxSixes = -1;
-    var maxWins = -1;
-    var mostSixesNames = [];
-    var mostWinsNames = [];
-    for (j = 0; j < sortable.length; j++) {
-      var pnm = sortable[j].pname;
-      var r0 = sortable[j].row || {};
-      var sixTotal = Number(r0.sixes) || 0;
-      var winTotal = Number(r0.roundWins) || 0;
-      if (sixTotal > maxSixes) {
-        maxSixes = sixTotal;
-        mostSixesNames = [pnm];
-      } else if (sixTotal === maxSixes) {
-        mostSixesNames.push(pnm);
-      }
-      if (winTotal > maxWins) {
-        maxWins = winTotal;
-        mostWinsNames = [pnm];
-      } else if (winTotal === maxWins) {
-        mostWinsNames.push(pnm);
-      }
-    }
-    var mostSixesLine = mostSixesNames.length
-      ? mostSixesNames.map(function (n) { return "<strong>" + escapeHtmlLucky(n) + "</strong>"; }).join(", ")
-      : "—";
-    var mostWinsLine = mostWinsNames.length
-      ? mostWinsNames.map(function (n) { return "<strong>" + escapeHtmlLucky(n) + "</strong>"; }).join(", ")
-      : "—";
     var rowsHtml = "";
     for (j = 0; j < sortable.length; j++) {
       var ent = sortable[j];
@@ -3176,25 +3278,33 @@
       var w = Number(rr.roundWins) || 0;
       var l = Number(rr.roundLosses) || 0;
       var t = Number(rr.roundTies) || 0;
-      var expectedSixes = d / 6;
+      var avgRoll = risqueLuckyMeanRoll(rr);
       var decisions = w + l;
       var winRatePct = decisions > 0 ? (w / decisions) * 100 : 0;
       rowsHtml +=
         "<tr>" +
-        "<td>" + escapeHtmlLucky(ent.pname) + "</td>" +
+        "<td>" + risqueLuckyPlayerCell(gs, ent.pname) + "</td>" +
+        "<td>" + String(d) + "</td>" +
         "<td>" + String(s) + "</td>" +
-        "<td>" + expectedSixes.toFixed(2) + "</td>" +
+        "<td>" + (Number.isFinite(avgRoll) ? avgRoll.toFixed(2) : "—") + "</td>" +
         "<td>" + String(w) + "-" + String(l) + "-" + String(t) + "</td>" +
         "<td>" + (decisions > 0 ? winRatePct.toFixed(1) + "%" : "—") + "</td>" +
         "</tr>";
     }
     el.innerHTML =
       '<div class="risque-host-lucky-inner hud-stats-inner">' +
-      '<p class="risque-host-lucky-lead">Attack dice only. Includes all players from session start (even eliminated).</p>' +
-      '<p class="risque-host-lucky-postgame-line">Most <strong>sixes</strong>: ' + mostSixesLine + " — " + (maxSixes > -1 ? String(maxSixes) : "0") + "</p>" +
-      '<p class="risque-host-lucky-postgame-line">Most <strong>wins</strong>: ' + mostWinsLine + " — " + (maxWins > -1 ? String(maxWins) : "0") + "</p>" +
+      '<p class="risque-host-lucky-lead">Attack dice only. All session players stay listed (even after elimination); averages use only dice rolled while they were in the game.</p>' +
+      '<p class="risque-host-lucky-postgame-line">Most <strong>sixes</strong> (total): ' +
+      mostSixesLine +
+      "</p>" +
+      '<p class="risque-host-lucky-postgame-line">Best <strong>average roll</strong>: ' +
+      bestAvgLine +
+      "</p>" +
+      '<p class="risque-host-lucky-postgame-line">Most <strong>battle wins</strong>: ' +
+      mostWinsLine +
+      "</p>" +
       '<table class="hud-stats-table risque-host-lucky-table" aria-label="Lucky results by player">' +
-      "<thead><tr><th>Player</th><th>6s</th><th>Avg 6s</th><th>W-L-T</th><th>Avg Wins</th></tr></thead>" +
+      "<thead><tr><th>Player</th><th>Dice</th><th>6s</th><th>Avg roll</th><th>W-L-T</th><th>Win %</th></tr></thead>" +
       "<tbody>" + rowsHtml + "</tbody>" +
       "</table>" +
       postgameBlock +
@@ -3202,6 +3312,7 @@
   }
 
   window.risqueRecordAttackRoundLedger = risqueRecordAttackRoundLedger;
+  window.risqueRememberLuckySessionPlayer = risqueRememberLuckySessionPlayer;
   window.risqueRenderHostLuckyPanel = risqueRenderHostLuckyPanel;
 
   function wireHostPrivateStatsToggleOnce() {
@@ -3330,6 +3441,30 @@
             }
           });
         }
+      },
+      true
+    );
+  }
+
+  function wireHostTvCursorGuardToggleOnce() {
+    if (window.risqueDisplayIsPublic || window.__risqueHostTvCursorToggleWired) return;
+    window.__risqueHostTvCursorToggleWired = true;
+    document.addEventListener(
+      "click",
+      function (ev) {
+        var t = ev.target;
+        if (!t || !t.closest) return;
+        var btn = t.closest("#risque-host-tv-cursor-toggle");
+        if (!btn) return;
+        ev.preventDefault();
+        var unlocked = risqueTvCursorAccessAllowedFromLs();
+        var nextUnlocked = !unlocked;
+        risqueHostSetCursorGuardClipped(!nextUnlocked).then(function () {
+          btn.setAttribute("aria-checked", nextUnlocked ? "true" : "false");
+          btn.title = nextUnlocked
+            ? "TV cursor: ON (touch/mouse can reach external display). Tap to lock to laptop only."
+            : "TV cursor: OFF (locked to laptop). Tap to allow cursor on TV — for Moonlight/tablet.";
+        });
       },
       true
     );
@@ -4282,12 +4417,17 @@
       reportClassName = "ucp-voice-report ucp-voice-report--public-next-player-handoff";
     } else if (
       window.risqueDisplayIsPublic &&
-      String(gs.phase || "") === "deploy" &&
+      risqueFrozenPublicBoardMirrorActive(String(gs.phase || "")) &&
       gs.risquePublicDeployBanner != null &&
       String(gs.risquePublicDeployBanner).trim() !== ""
     ) {
       basePrimary = String(gs.risquePublicDeployBanner).trim();
-      reportText = cv && cv.report != null ? String(cv.report).trim() : "";
+      reportText =
+        gs.risquePublicDeployReport != null
+          ? String(gs.risquePublicDeployReport).trim()
+          : cv && cv.report != null
+            ? String(cv.report).trim()
+            : "";
       reportClassName = "ucp-voice-report ucp-voice-report--public-deploy";
     } else if (ctf !== "") {
       basePrimary = ctf;
@@ -4618,6 +4758,382 @@
     _pubBook.summaryDeadlineMs = null;
     _pubBook.shelfStagingKey = null;
   }
+
+  function clearPublicDeployAnimTimers() {
+    if (_pubDeploy.stepTimer) clearTimeout(_pubDeploy.stepTimer);
+    if (_pubDeploy.holdTimer) clearTimeout(_pubDeploy.holdTimer);
+    if (_pubDeploy.introTimer) clearTimeout(_pubDeploy.introTimer);
+    _pubDeploy.stepTimer = null;
+    _pubDeploy.holdTimer = null;
+    _pubDeploy.introTimer = null;
+  }
+
+  function resetPublicDeploySequence() {
+    clearPublicDeployAnimTimers();
+    _pubDeploy.seq = null;
+    _pubDeploy.phase = "idle";
+    _pubDeploy.stepIndex = 0;
+    _pubDeploy.proc = null;
+    _pubDeploy.revealedDeltas = null;
+    _pubDeploy.troopOverrides = null;
+    if (typeof window !== "undefined") {
+      delete window.__risquePublicDeployPlayback;
+    }
+  }
+
+  function risquePublicDeployCloneTroopMapFromPlayers(players) {
+    var map = {};
+    (players || []).forEach(function (p) {
+      (p && p.territories ? p.territories : []).forEach(function (t) {
+        if (t && t.name) map[t.name] = Number(t.troops) || 0;
+      });
+    });
+    return map;
+  }
+
+  function risquePublicDeployAnimActive() {
+    return _pubDeploy.phase !== "idle" && _pubDeploy.phase !== "done";
+  }
+
+  function risquePublicDeployApplyPlaybackToWindow() {
+    window.__risquePublicDeployPlayback = {
+      playerName:
+        _pubDeploy.proc && _pubDeploy.proc.playerName
+          ? String(_pubDeploy.proc.playerName)
+          : "",
+      revealedDeltas: Object.assign({}, _pubDeploy.revealedDeltas || {}),
+      troopOverrides: Object.assign({}, _pubDeploy.troopOverrides || {})
+    };
+  }
+
+  function risquePublicDeployRedrawMap() {
+    if (!window.gameUtils || typeof window.gameUtils.renderTerritories !== "function") {
+      return;
+    }
+    try {
+      window.gameUtils.renderTerritories(null, window.gameState, {});
+      if (typeof window.gameUtils.renderStats === "function") {
+        window.gameUtils.renderStats(window.gameState);
+      }
+    } catch (eRd) {
+      /* ignore */
+    }
+  }
+
+  function risquePublicDeployWriteRecapAck(seq) {
+    try {
+      localStorage.setItem(
+        DEPLOY_PUBLIC_RECAP_ACK_KEY,
+        JSON.stringify({ seq: Number(seq), at: Date.now() })
+      );
+    } catch (eAck) {
+      /* ignore */
+    }
+  }
+
+  function risquePublicDeployFinish(gs) {
+    var proc = _pubDeploy.proc;
+    if (!gs || !proc) {
+      resetPublicDeploySequence();
+      return;
+    }
+    if (proc.finalPlayers && Array.isArray(proc.finalPlayers)) {
+      gs.players = JSON.parse(JSON.stringify(proc.finalPlayers));
+    }
+    /* Stay on current map phase until host mirrors the next phase — avoids TV ahead of host. */
+    var phFin = String(gs.phase || "");
+    if (!risqueTurnDeployMirrorPhase(phFin) && !risqueReinforcePrivateMirrorPhase(phFin)) {
+      gs.phase = "deploy";
+    }
+    delete gs.risquePublicDeployProcessing;
+    delete gs.risqueDeployMirrorDraft;
+    delete gs.risqueTransferPulse;
+    try {
+      var procKind = proc && String(proc.kind || "") === "reinforce";
+      gs.risquePublicDeployBanner =
+        (proc.playerName ? String(proc.playerName).toUpperCase() : "PLAYER") +
+        (procKind ? " — REINFORCEMENT COMPLETE" : " — DEPLOYMENT COMPLETE");
+      gs.risquePublicDeployReport = "Waiting for host to continue…";
+    } catch (eBn) {
+      /* ignore */
+    }
+    risquePublicDeployWriteRecapAck(proc.seq);
+    resetPublicDeploySequence();
+    risquePublicDeployRedrawMap();
+    try {
+      localStorage.setItem(PUBLIC_MIRROR_KEY, JSON.stringify(gs));
+    } catch (eMir) {
+      /* ignore */
+    }
+    if (typeof window.risqueRefreshControlVoiceMirror === "function") {
+      window.risqueRefreshControlVoiceMirror(gs);
+    }
+  }
+
+  function risquePublicDeployRunStep(stepIndex) {
+    var proc = _pubDeploy.proc;
+    var gs = window.gameState;
+    if (!proc || !gs || !Array.isArray(proc.steps)) return;
+    if (stepIndex >= proc.steps.length) {
+      _pubDeploy.phase = "hold";
+      _pubDeploy.holdTimer = setTimeout(function () {
+        _pubDeploy.holdTimer = null;
+        _pubDeploy.phase = "done";
+        risquePublicDeployFinish(gs);
+      }, Number(proc.holdMs) > 0 ? Number(proc.holdMs) : DEPLOY_PUBLIC_HOLD_MS);
+      return;
+    }
+    var step = proc.steps[stepIndex];
+    if (!step || !step.label) {
+      risquePublicDeployRunStep(stepIndex + 1);
+      return;
+    }
+    var label = String(step.label);
+    var delta = Math.max(0, Math.floor(Number(step.delta) || 0));
+    if (delta > 0) {
+      _pubDeploy.revealedDeltas[label] = delta;
+    }
+    if (step.finalTroops != null && Number.isFinite(Number(step.finalTroops))) {
+      _pubDeploy.troopOverrides[label] = Number(step.finalTroops);
+    }
+    _pubDeploy.stepIndex = stepIndex;
+    risquePublicDeployApplyPlaybackToWindow();
+    risquePublicDeployRedrawMap();
+    _pubDeploy.stepTimer = setTimeout(function () {
+      _pubDeploy.stepTimer = null;
+      risquePublicDeployRunStep(stepIndex + 1);
+    }, Number(proc.stepMs) > 0 ? Number(proc.stepMs) : DEPLOY_PUBLIC_STEP_MS);
+  }
+
+  function risquePublicDeploySequenceOnIncomingState(gs) {
+    if (!window.risqueDisplayIsPublic || !gs) return;
+    if (gs.risqueReplayPlaybackActive) {
+      if (_pubDeploy.seq != null) resetPublicDeploySequence();
+      return;
+    }
+    var proc = gs.risquePublicDeployProcessing;
+    if (!proc || !proc.seq || !Array.isArray(proc.steps) || !proc.steps.length) {
+      if (_pubDeploy.seq != null && _pubDeploy.phase !== "idle") {
+        resetPublicDeploySequence();
+        risquePublicDeployRedrawMap();
+      }
+      return;
+    }
+    if (Number(_pubDeploy.seq) === Number(proc.seq) && _pubDeploy.phase !== "idle") {
+      _pubDeploy.proc = proc;
+      return;
+    }
+    clearPublicDeployAnimTimers();
+    _pubDeploy.seq = proc.seq;
+    _pubDeploy.proc = proc;
+    _pubDeploy.phase = "intro";
+    _pubDeploy.stepIndex = 0;
+    _pubDeploy.revealedDeltas = {};
+    var frozen =
+      gs.risqueDeployPublicMirrorSnapshot &&
+      gs.risqueDeployPublicMirrorSnapshot.players
+        ? gs.risqueDeployPublicMirrorSnapshot.players
+        : proc.finalPlayers;
+    _pubDeploy.troopOverrides = risquePublicDeployCloneTroopMapFromPlayers(frozen);
+    var baseline = proc.territoryBaseline && typeof proc.territoryBaseline === "object" ? proc.territoryBaseline : {};
+    Object.keys(baseline).forEach(function (lbl) {
+      _pubDeploy.troopOverrides[lbl] = Number(baseline[lbl]) || 0;
+    });
+    try {
+      var intro =
+        proc.introPrimary != null && String(proc.introPrimary).trim() !== ""
+          ? String(proc.introPrimary).trim()
+          : (proc.playerName ? String(proc.playerName).toUpperCase() : "PLAYER") + " DEPLOYS";
+      gs.risquePublicDeployBanner = intro;
+      gs.risquePublicDeployReport = "";
+    } catch (eVo) {
+      /* ignore */
+    }
+    risquePublicDeployApplyPlaybackToWindow();
+    risquePublicDeployRedrawMap();
+    if (typeof window.risqueRefreshControlVoiceMirror === "function") {
+      window.risqueRefreshControlVoiceMirror(gs);
+    }
+    _pubDeploy.introTimer = setTimeout(function () {
+      _pubDeploy.introTimer = null;
+      _pubDeploy.phase = "step";
+      risquePublicDeployRunStep(0);
+    }, DEPLOY_PUBLIC_INTRO_MS);
+  }
+
+  function risquePublicEnsureDeployPrivateHint(gs) {
+    if (!window.risqueDisplayIsPublic || !gs) return;
+    var ph = String(gs.phase || "");
+    var isDeploy = risqueTurnDeployMirrorPhase(ph);
+    var isReinforce = risqueReinforcePrivateMirrorPhase(ph);
+    if (!isDeploy && !isReinforce) return;
+    if (gs.risquePublicDeployProcessing) {
+      var slot0 = document.getElementById("risque-phase-content");
+      if (slot0) {
+        var stale0 = slot0.querySelector(".risque-public-private-hint");
+        if (stale0) stale0.remove();
+      }
+      return;
+    }
+    if (!gs.risqueDeploySuppressPublicSpectator) return;
+    var slot = document.getElementById("risque-phase-content");
+    if (!slot) return;
+    var player = gs.currentPlayer ? String(gs.currentPlayer) : "Player";
+    var countLine = "";
+    if (isDeploy) {
+      try {
+        var p = (gs.players || []).find(function (x) {
+          return x && String(x.name) === player;
+        });
+        var bank = p ? Math.max(0, Number(p.bankValue) || 0) : 0;
+        countLine =
+          bank === 0
+            ? "Waiting for host to confirm deployment."
+            : bank + " troop" + (bank === 1 ? "" : "s") + " in bank";
+      } catch (eBk) {
+        countLine = "";
+      }
+    } else {
+      countLine = "Waiting for host to confirm reinforcement.";
+    }
+    var hintClass = isReinforce
+      ? "risque-public-private-hint risque-public-private-hint--reinforce"
+      : "risque-public-private-hint risque-public-private-hint--deploy";
+    var leadText = isReinforce
+      ? "Reinforcement is private — use the host screen."
+      : "Deployment is private — use the host screen.";
+    if (!slot.querySelector(".risque-public-private-hint")) {
+      slot.innerHTML =
+        '<div class="' +
+        hintClass +
+        '" role="status">' +
+        '<p class="risque-public-private-hint__lead">' +
+        leadText +
+        "</p>" +
+        '<p id="risque-public-deploy-bank-line" class="risque-public-private-hint__count" aria-live="polite"></p>' +
+        "</div>";
+    }
+    var countEl = document.getElementById("risque-public-deploy-bank-line");
+    if (countEl) countEl.textContent = countLine;
+  }
+
+  function risqueHostStopDeployRecapAckPoll() {
+    if (window.__risqueHostDeployAckPoll) {
+      clearInterval(window.__risqueHostDeployAckPoll);
+      window.__risqueHostDeployAckPoll = null;
+    }
+    if (window.__risqueHostDeployAckTimeout) {
+      clearTimeout(window.__risqueHostDeployAckTimeout);
+      window.__risqueHostDeployAckTimeout = null;
+    }
+    if (window.__risqueHostDeployAdvanceTimer) {
+      clearTimeout(window.__risqueHostDeployAdvanceTimer);
+      window.__risqueHostDeployAdvanceTimer = null;
+    }
+    if (window.__risqueHostDeployAckStorageHandler) {
+      try {
+        window.removeEventListener("storage", window.__risqueHostDeployAckStorageHandler);
+      } catch (eRm) {
+        /* ignore */
+      }
+      window.__risqueHostDeployAckStorageHandler = null;
+    }
+  }
+
+  window.risqueHostStartDeployRecapAckPoll = function (onAck, opts) {
+    if (typeof onAck !== "function") return;
+    opts = opts || {};
+    risqueHostStopDeployRecapAckPoll();
+    var stepCount =
+      opts.stepCount != null && Number.isFinite(Number(opts.stepCount))
+        ? Math.max(0, Math.floor(Number(opts.stepCount)))
+        : 0;
+    var animMs =
+      DEPLOY_PUBLIC_INTRO_MS +
+      stepCount * DEPLOY_PUBLIC_STEP_MS +
+      DEPLOY_PUBLIC_HOLD_MS +
+      200;
+    var maxWaitMs =
+      opts.maxWaitMs != null && Number.isFinite(Number(opts.maxWaitMs))
+        ? Math.max(animMs + 500, Math.floor(Number(opts.maxWaitMs)))
+        : Math.min(90000, animMs + 8000);
+    var finished = false;
+
+    function finishAck() {
+      if (finished) return;
+      finished = true;
+      risqueHostStopDeployRecapAckPoll();
+      try {
+        if (window.gameState) {
+          delete window.gameState.risquePublicDeployAckRequiredSeq;
+        }
+      } catch (eClr) {
+        /* ignore */
+      }
+      onAck();
+    }
+
+    function onAckStorage(ev) {
+      if (ev && ev.key && ev.key !== DEPLOY_PUBLIC_RECAP_ACK_KEY) return;
+      var req =
+        window.gameState && window.gameState.risquePublicDeployAckRequiredSeq != null
+          ? Number(window.gameState.risquePublicDeployAckRequiredSeq)
+          : null;
+      if (req == null || !Number.isFinite(req)) return;
+      try {
+        var raw = localStorage.getItem(DEPLOY_PUBLIC_RECAP_ACK_KEY);
+        if (!raw) return;
+        var ack = JSON.parse(raw);
+        if (Number(ack.seq) !== req) return;
+      } catch (eSt) {
+        return;
+      }
+      finishAck();
+    }
+
+    try {
+      window.addEventListener("storage", onAckStorage);
+    } catch (eEv) {
+      /* ignore */
+    }
+    window.__risqueHostDeployAckStorageHandler = onAckStorage;
+
+    window.__risqueHostDeployAckPoll = setInterval(function () {
+      var req =
+        window.gameState && window.gameState.risquePublicDeployAckRequiredSeq != null
+          ? Number(window.gameState.risquePublicDeployAckRequiredSeq)
+          : null;
+      if (req == null || !Number.isFinite(req)) {
+        return;
+      }
+      try {
+        var raw = localStorage.getItem(DEPLOY_PUBLIC_RECAP_ACK_KEY);
+        if (!raw) return;
+        var ack = JSON.parse(raw);
+        if (Number(ack.seq) !== req) return;
+      } catch (ePoll) {
+        return;
+      }
+      finishAck();
+    }, 200);
+
+    window.__risqueHostDeployAckTimeout = setTimeout(function () {
+      var req =
+        window.gameState && window.gameState.risquePublicDeployAckRequiredSeq != null
+          ? Number(window.gameState.risquePublicDeployAckRequiredSeq)
+          : null;
+      if (req != null && Number.isFinite(req)) {
+        risquePublicDeployWriteRecapAck(req);
+      }
+      finishAck();
+    }, maxWaitMs);
+
+    window.__risqueHostDeployAdvanceTimer = setTimeout(function () {
+      finishAck();
+    }, animMs);
+  };
+
+  window.risqueHostStopDeployRecapAckPoll = risqueHostStopDeployRecapAckPoll;
 
   /** Drop stale cardplay book proc / override when entering live map phases (reinforce, attack, …). */
   function risqueStripStaleCardplayBookForMapPhase(gs) {
@@ -6861,6 +7377,7 @@
   function risquePublicMirrorGameStateApply(gs) {
     if (!gs) return;
     risquePublicBookSequenceOnIncomingState(gs);
+    risquePublicDeploySequenceOnIncomingState(gs);
     if (window.risqueDisplayIsPublic) {
       /* Host-only fallback; public render ignores this for warpath (uses gameState.risquePublicCampaignWarpathLabels). */
       window.__risqueCampaignWarpathLabels = Array.isArray(gs.risquePublicCampaignWarpathLabels)
@@ -6929,6 +7446,8 @@
           } else {
             risquePublicRenderMapForBook(gs);
           }
+        } else if (risquePublicDeployAnimActive()) {
+          risquePublicDeployRedrawMap();
         } else if (_pubBook.displayTroopMap && (_pubBook.phase === "summary" || _pubBook.phase === "step")) {
           risquePublicRenderMapForBook(gs);
         } else {
@@ -6943,6 +7462,9 @@
       window.risqueDisplayIsPublic &&
       gs &&
       gs.risqueTransferPulse &&
+      !risquePublicDeployAnimActive() &&
+      !gs.risqueDeploySuppressPublicSpectator &&
+      !gs.risquePublicDeployProcessing &&
       window.gameUtils &&
       typeof window.gameUtils.risqueStartTransferPulseTicker === "function"
     ) {
@@ -6983,6 +7505,7 @@
     risquePublicEnsureCardplayRecapPanel(gs);
     if (window.risqueDisplayIsPublic) {
       risquePublicEnsureCardplayPrivateHint(gs);
+      risquePublicEnsureDeployPrivateHint(gs);
       risquePublicTryScheduleIncomeGateRelease(gs);
     }
     if (typeof window.risqueConquerSyncCelebrationFromState === "function") {
@@ -7054,6 +7577,7 @@
 
   function risquePublicMirrorGameState(gs) {
     if (!gs || !window.risqueDisplayIsPublic) return;
+    if (!risquePublicShouldAcceptMirrorGameState(gs)) return;
     if (risquePublicMirrorShouldHoldIncomeApply(gs)) {
       try {
         _pubBook.deferredIncomeMirrorPayload = JSON.stringify(gs);
@@ -7337,18 +7861,13 @@
     s.players.forEach(function (p) {
       var nm = p && p.name ? String(p.name) : "";
       if (!nm) return;
-      if (!s.risqueLuckyLedger.byPlayer[nm]) {
-        s.risqueLuckyLedger.byPlayer[nm] = {
-          dice: 0,
-          sixes: 0,
-          roundWins: 0,
-          roundLosses: 0,
-          roundTies: 0
-        };
-      }
+      risqueEnsureLuckyLedgerRow(s.risqueLuckyLedger.byPlayer, nm);
     });
     if (!Array.isArray(s.risqueLuckySessionRoster)) {
       s.risqueLuckySessionRoster = [];
+    }
+    if (!Array.isArray(s.risqueLuckyEliminatedNames)) {
+      s.risqueLuckyEliminatedNames = [];
     }
     if (
       window.gameUtils &&
@@ -7356,31 +7875,7 @@
     ) {
       window.gameUtils.clearStaleConquestCardplayFieldsUnlessChain(s);
     }
-    /* Old saves: rebuild roster from turn order, current players, and ledger (eliminated names). */
-    if (!s.risqueLuckySessionRoster.length) {
-      var seenRo = {};
-      var rosterOut = [];
-      function pushRosterName(nm) {
-        if (!nm || seenRo[nm]) return;
-        seenRo[nm] = true;
-        rosterOut.push(nm);
-      }
-      var ri;
-      for (ri = 0; ri < (s.turnOrder || []).length; ri++) {
-        if (s.turnOrder[ri]) pushRosterName(String(s.turnOrder[ri]));
-      }
-      for (ri = 0; ri < (s.players || []).length; ri++) {
-        var pr = s.players[ri] && s.players[ri].name;
-        if (pr) pushRosterName(String(pr));
-      }
-      var byRo = (s.risqueLuckyLedger && s.risqueLuckyLedger.byPlayer) || {};
-      Object.keys(byRo).forEach(function (k) {
-        if (k) pushRosterName(String(k));
-      });
-      if (rosterOut.length) {
-        s.risqueLuckySessionRoster = rosterOut;
-      }
-    }
+    risqueMergeLuckySessionRoster(s);
     var postSetupPhases = {
       cardplay: 1,
       income: 1,
@@ -9939,6 +10434,54 @@
     }
   }
 
+  /** Strip territory chips from the public board SVG (login / fresh boot). */
+  function risquePublicClearBoardMarkers() {
+    try {
+      var svg =
+        typeof window.risqueGetCanvasSvgOverlay === "function"
+          ? window.risqueGetCanvasSvgOverlay()
+          : document.querySelector("#canvas .svg-overlay");
+      if (!svg) return;
+      svg
+        .querySelectorAll(
+          "circle.territory-circle, text.territory-number, g.territory-number, g.territory-troop-notches, g.territory-deploy-satellite"
+        )
+        .forEach(function (el) {
+          el.remove();
+        });
+    } catch (eClr) {
+      /* ignore */
+    }
+    try {
+      window.__risqueCampaignWarpathLabels = [];
+    } catch (eWp) {
+      /* ignore */
+    }
+  }
+
+  /**
+   * Public TV cold start: drop stale mirror JSON from the last session so poll/storage cannot
+   * paint ghost markers before the host reaches login.
+   */
+  function risquePublicPrepareCleanTvBoot() {
+    window.__risquePublicTvAwaitingHostLogin = true;
+    window.__risquePublicMirrorAppliedRaw = null;
+    try {
+      localStorage.removeItem(PUBLIC_MIRROR_KEY);
+    } catch (eRm) {
+      /* ignore */
+    }
+    risquePublicClearBoardMarkers();
+  }
+
+  /** While awaiting host login, ignore non-login mirror payloads (stale mid-game saves). */
+  function risquePublicShouldAcceptMirrorGameState(gs) {
+    if (!window.__risquePublicTvAwaitingHostLogin) return true;
+    if (!gs || String(gs.phase || "") !== "login") return false;
+    window.__risquePublicTvAwaitingHostLogin = false;
+    return true;
+  }
+
   function maybeEnsureRuntimeHud(gs) {
     if (!gs || gs.phase === "login") return;
     var canvas = document.getElementById("canvas");
@@ -9991,6 +10534,7 @@
       if (!window.risqueDisplayIsPublic) {
         wireHostPrivateStatsToggleOnce();
         wireHostPrivateCardsPlayedToggleOnce();
+        wireHostTvCursorGuardToggleOnce();
         wireHostPrivateLuckyToggleOnce();
         wireHostPrivateCardsInHandToggleOnce();
         ensureGraceHostOverlayInDom();
@@ -10012,6 +10556,7 @@
     }
     wireHostPrivateStatsToggleOnce();
     wireHostPrivateCardsPlayedToggleOnce();
+    wireHostTvCursorGuardToggleOnce();
     wireHostPrivateLuckyToggleOnce();
     wireHostPrivateCardsInHandToggleOnce();
     if (!window.risqueDisplayIsPublic) {
@@ -10168,6 +10713,9 @@
         }
         window.gameUtils.initGameView();
         var loginVisual = visualStateForLoginScreen(state);
+        if (window.risqueDisplayIsPublic) {
+          risquePublicClearBoardMarkers();
+        }
         try {
           window.gameUtils.renderTerritories(null, loginVisual);
         } catch (e0) {
@@ -10195,7 +10743,12 @@
             window.risqueRuntimeHud.syncPosition();
           }
         });
-        updateDiagnostics(note || "Login — board visible; sign in via HUD on the right.");
+        updateDiagnostics(
+          note ||
+            (window.risqueDisplayIsPublic
+              ? "Login — waiting for host; board clear until host signs in."
+              : "Login — board visible; sign in via HUD on the right.")
+        );
         return;
       }
       if (stageHost) stageHost.style.visibility = "";
@@ -12993,6 +13546,7 @@
     var rawMirror = localStorage.getItem(PUBLIC_MIRROR_KEY);
     var parsedMirror = rawMirror ? tryParse(rawMirror) : null;
     if (publicTvBootstrap) {
+      risquePublicPrepareCleanTvBoot();
       state = normalizeState(visualStateForLoginScreen(loadState()));
     } else if (parsedMirror && String(parsedMirror.phase || "") === "login") {
       state = normalizeState(parsedMirror);
@@ -13022,6 +13576,13 @@
   if (forcedPhase === "login") {
     loginMounted = false;
     state.phase = "login";
+    if (!window.risqueDisplayIsPublic) {
+      try {
+        localStorage.removeItem(PUBLIC_MIRROR_KEY);
+      } catch (eHostMirClr) {
+        /* ignore */
+      }
+    }
   } else {
     if (
       forcedPhase &&
@@ -13982,5 +14543,6 @@
   }
 
   installRisquePublicCursorMirrorTracking();
+  installRisqueCursorGuardStateHostSync();
   installRisqueAuxMouseAndHistoryGuard();
 })();

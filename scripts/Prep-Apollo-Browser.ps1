@@ -29,6 +29,11 @@ $dirs = @(
 )
 
 Write-Host "RISQUE-APOLLO browser prep..." -ForegroundColor Cyan
+$chromiumPs1 = Join-Path $PSScriptRoot "risque-chromium-primary.ps1"
+if (Test-Path -LiteralPath $chromiumPs1) {
+    . $chromiumPs1
+    Stop-RisqueCursorGuard
+}
 foreach ($id in @("risque-apollo-local", "risque-apollo-menu")) {
     Stop-RisqueLauncherChromeByFlag -InstanceId $id
 }

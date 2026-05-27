@@ -912,6 +912,9 @@ function checkPlayerElimination(defenderPlayer) {
     ? window.gameState.turnOrder.slice()
     : [];
   window.gameState.turnOrder = turnOrderBeforeElimination.filter(name => name !== defenderPlayer.name);
+  if (typeof window.risqueRememberLuckySessionPlayer === 'function') {
+    window.risqueRememberLuckySessionPlayer(window.gameState, defenderPlayer.name);
+  }
   if (
     turnOrderBeforeElimination.length >= 2 &&
     window.gameState.turnOrder.length === 1

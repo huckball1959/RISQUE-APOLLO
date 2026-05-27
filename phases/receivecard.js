@@ -1086,6 +1086,9 @@
       paidSoFar: paidSoFar.slice()
     });
 
+    if (typeof window.risqueRememberLuckySessionPlayer === "function") {
+      window.risqueRememberLuckySessionPlayer(gs, defeatedName);
+    }
     gs.players = gs.players.filter(function (p) {
       return p && p.name !== defeatedName;
     });
