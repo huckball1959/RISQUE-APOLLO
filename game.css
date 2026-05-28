@@ -7641,21 +7641,22 @@ body.risque-view-host[data-risque-phase="con-income"]
 /* L1 / L3: use campaign-instant-action-btn (not .attack-ctl-btn — that class is width:100%, white text, no fill). */
 .campaign-instant-leave-controls .campaign-instant-action-btn.campaign-instant-leave-preset {
   flex: 0 0 auto;
-  min-width: 2.75em;
-  padding: 6px 10px;
-  font-size: 11px;
-  line-height: 1.2;
+  min-width: 3.25em;
+  padding: 8px 12px;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.15;
 }
 
 .campaign-instant-leave-input {
-  width: 4.5em;
+  width: 4.75em;
   max-width: 100%;
   box-sizing: border-box;
   font-family: inherit;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 800;
   text-align: center;
-  padding: 4px 6px;
+  padding: 6px 8px;
   border-radius: 2px;
   border: 1px solid #2a9a2a;
   background: #0f0f0f;
@@ -7813,10 +7814,18 @@ body.risque-view-host[data-risque-phase="attack"] .campaign-instant-hud-leave {
   gap: 12px;
 }
 
+body.risque-view-host[data-risque-phase="attack"] .campaign-instant-leave-controls .campaign-instant-leave-preset {
+  font-size: 24px;
+  padding: 10px 16px;
+  min-width: 3.5em;
+  line-height: 1.1;
+}
+
 body.risque-view-host[data-risque-phase="attack"] .campaign-instant-leave-input {
-  font-size: 20px;
-  padding: 8px 12px;
-  width: 5em;
+  font-size: 26px;
+  padding: 10px 12px;
+  width: 5.5em;
+  min-height: 48px;
 }
 
 body.risque-view-host[data-risque-phase="attack"] .campaign-instant-hud-cond {
@@ -7887,10 +7896,40 @@ html.risque-view-public[data-risque-phase="attack"] .campaign-instant-hud-leave 
   gap: 12px;
 }
 
+html.risque-view-public[data-risque-phase="attack"] .campaign-instant-leave-controls .campaign-instant-leave-preset {
+  font-size: 24px;
+  padding: 10px 16px;
+  min-width: 3.5em;
+  line-height: 1.1;
+}
+
 html.risque-view-public[data-risque-phase="attack"] .campaign-instant-leave-input {
-  font-size: 20px;
-  padding: 8px 12px;
-  width: 5em;
+  font-size: 26px;
+  padding: 10px 12px;
+  width: 5.5em;
+  min-height: 48px;
+}
+
+/* Path campaign (BEGIN): LEAVE 1 / LEAVE 3 + garrison number in control-voice extras */
+body.risque-view-host[data-risque-phase="attack"] #campaign-garrison-pick.campaign-garrison-wrap,
+html.risque-view-public[data-risque-phase="attack"] #campaign-garrison-pick.campaign-garrison-wrap {
+  font-size: 18px;
+}
+
+body.risque-view-host[data-risque-phase="attack"] #campaign-garrison-pick .campaign-garrison-preset-btn,
+html.risque-view-public[data-risque-phase="attack"] #campaign-garrison-pick .campaign-garrison-preset-btn {
+  font-size: 22px;
+  padding: 10px 14px;
+  min-height: 48px;
+}
+
+body.risque-view-host[data-risque-phase="attack"] #campaign-garrison-pick .campaign-garrison-num,
+html.risque-view-public[data-risque-phase="attack"] #campaign-garrison-pick .campaign-garrison-num {
+  font-size: 26px;
+  min-height: 48px;
+  height: 48px;
+  max-height: 48px;
+  width: 5.5rem;
 }
 
 /* Instant blitz success + troop transfer — minimal copy (rolls stay in combat log). */
@@ -8085,13 +8124,19 @@ html.risque-view-public[data-risque-phase="attack"] .ucp-voice-report.ucp-voice-
 }
 
 .campaign-garrison-preset-btn {
-  font-size: 13px;
-  padding: 6px 10px;
+  font-size: 16px;
+  font-weight: 900;
+  padding: 8px 12px;
+  min-height: 42px;
 }
 
 .campaign-garrison-num {
-  width: 4.25rem;
+  width: 5rem;
   max-width: 100%;
+  font-size: 16px;
+  font-weight: 900;
+  min-height: 42px;
+  height: 42px;
 }
 
 .campaign-garrison-hint {
@@ -8871,6 +8916,112 @@ html.risque-view-public
   font-size: clamp(13px, 1.55vw, 18px);
   font-weight: 900;
   letter-spacing: 0.05em;
+}
+
+/* Public TV — card backs under hand-count line (cardplay draft + receive-card). */
+.risque-public-hand-backs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  align-items: center;
+  margin-top: 8px;
+  padding: 2px 0 4px;
+  min-height: 0;
+}
+
+.risque-public-card-back {
+  display: block;
+  width: clamp(38px, 5.8vw, 58px);
+  height: auto;
+  max-height: min(12vh, 88px);
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  flex: 0 0 auto;
+}
+
+.risque-public-receivecard-split {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  text-align: center;
+  position: relative;
+  overflow: visible;
+}
+
+.risque-public-private-hint--receivecard {
+  overflow: visible;
+  position: relative;
+}
+
+.risque-public-receivecard-staging-wrap--merging {
+  border-color: #00ff00;
+  box-shadow: 0 0 10px rgba(0, 255, 0, 0.35);
+}
+
+.risque-public-receivecard-pane--merge-target {
+  outline: 1px dashed rgba(0, 255, 0, 0.45);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.risque-public-receivecard-flyer {
+  position: absolute;
+  z-index: 12000;
+  pointer-events: none;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.65);
+  transition: transform 0.85s cubic-bezier(0.22, 0.85, 0.28, 1);
+  will-change: transform;
+  opacity: 1;
+}
+
+.risque-public-receivecard-flyer--active {
+  filter: drop-shadow(0 0 8px rgba(0, 255, 0, 0.55));
+}
+
+.risque-public-receivecard-merge-note {
+  margin: 6px 0 0 0;
+  font-size: clamp(9px, 1.05vw, 11px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  color: #00ff00;
+}
+
+.risque-public-receivecard-pane-label {
+  margin: 0 0 4px 0;
+  font-size: clamp(9px, 1.05vw, 11px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.88;
+  line-height: 1.2;
+}
+
+.risque-public-receivecard-staging-wrap {
+  box-sizing: border-box;
+  padding: 6px 8px 8px;
+  border: 1px solid #14532d;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  overflow: visible;
+}
+
+.risque-public-hand-backs--staging {
+  margin-top: 4px;
+}
+
+.risque-view-public body[data-risque-phase="receivecard"] #hud-main-panel:not(:has(.risque-public-private-hint--receivecard)):not(:has(#control-voice-text)) {
+  display: none !important;
+}
+
+.risque-view-public body[data-risque-phase="receivecard"] .risque-public-private-hint--receivecard {
+  margin-top: 0;
 }
 
 /* Public TV — card-play recap: jet black panel, GIMP #00ff00 text & borders */

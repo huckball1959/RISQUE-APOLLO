@@ -1585,6 +1585,154 @@
     troopOverrides: null
   };
 
+  /** Public TV receive-card: staging → hand merge fly animation. */
+  var _pubRc = {
+    playedMergeSeq: null,
+    mergeAnimRunning: false,
+    mergeFallbackTimer: null
+  };
+
+  function risquePublicReceiveCardClearMergeAnimTimers() {
+    if (_pubRc.mergeFallbackTimer) {
+      clearTimeout(_pubRc.mergeFallbackTimer);
+      _pubRc.mergeFallbackTimer = null;
+    }
+    var oldFly = document.querySelector(".risque-public-receivecard-flyer");
+    if (oldFly && oldFly.parentNode) oldFly.parentNode.removeChild(oldFly);
+    _pubRc.mergeAnimRunning = false;
+  }
+
+  function risquePublicReceiveCardFinishMergeAnim(finalHandCount) {
+    risquePublicReceiveCardClearMergeAnimTimers();
+    var handEl = document.getElementById("risque-public-receivecard-hand-backs");
+    var stagingEl = document.getElementById("risque-public-receivecard-staging-backs");
+    var stagingWrap = document.getElementById("risque-public-receivecard-staging-wrap");
+    var nFinal = Math.max(0, Math.floor(Number(finalHandCount) || 0));
+    risquePublicUpdateCardBacksContainer(handEl, nFinal);
+    risquePublicUpdateCardBacksContainer(stagingEl, 0);
+    if (stagingWrap) {
+      stagingWrap.hidden = true;
+    }
+    var mergeNote = document.getElementById("risque-public-receivecard-merge-note");
+    if (mergeNote) {
+      mergeNote.textContent = "Added to hand above.";
+      mergeNote.hidden = false;
+    }
+    var rcCountEl = document.getElementById("risque-public-receivecard-hand-count");
+    if (rcCountEl && window.gameState && typeof risquePublicFormatCardplaySpectatorHandLine === "function") {
+      rcCountEl.textContent = risquePublicFormatCardplaySpectatorHandLine(window.gameState);
+    }
+  }
+
+  function risquePublicReceiveCardPlayMergeAnim(spec) {
+    if (!spec || spec.mergeAnimSeq == null) return;
+    var seq = Number(spec.mergeAnimSeq);
+    if (!Number.isFinite(seq) || seq <= 0) return;
+    if (_pubRc.mergeAnimRunning && _pubRc.playedMergeSeq === seq) return;
+    if (_pubRc.playedMergeSeq === seq) return;
+
+    try {
+      if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        _pubRc.playedMergeSeq = seq;
+        risquePublicReceiveCardFinishMergeAnim(spec.mergeFinalHandCount);
+        return;
+      }
+    } catch (eRm) {
+      /* ignore */
+    }
+
+    risquePublicReceiveCardClearMergeAnimTimers();
+    _pubRc.playedMergeSeq = seq;
+    _pubRc.mergeAnimRunning = true;
+
+    var fromHand =
+      spec.mergeAnimFromHand != null && Number.isFinite(Number(spec.mergeAnimFromHand))
+        ? Math.max(0, Math.floor(Number(spec.mergeAnimFromHand)))
+        : Math.max(0, Math.floor(Number(spec.mergeFinalHandCount) || 0) - 1);
+    var toHand =
+      spec.mergeFinalHandCount != null && Number.isFinite(Number(spec.mergeFinalHandCount))
+        ? Math.max(0, Math.floor(Number(spec.mergeFinalHandCount)))
+        : fromHand + 1;
+
+    var split = document.querySelector(".risque-public-receivecard-split");
+    var stagingWrap = document.getElementById("risque-public-receivecard-staging-wrap");
+    var handEl = document.getElementById("risque-public-receivecard-hand-backs");
+    var stagingEl = document.getElementById("risque-public-receivecard-staging-backs");
+    var handPane = document.querySelector(".risque-public-receivecard-pane");
+    var mergeNote = document.getElementById("risque-public-receivecard-merge-note");
+    if (mergeNote) {
+      mergeNote.hidden = true;
+      mergeNote.textContent = "";
+    }
+    if (stagingWrap) {
+      stagingWrap.hidden = false;
+      stagingWrap.removeAttribute("hidden");
+      stagingWrap.classList.add("risque-public-receivecard-staging-wrap--merging");
+    }
+    if (handPane) {
+      handPane.classList.add("risque-public-receivecard-pane--merge-target");
+    }
+
+    risquePublicUpdateCardBacksContainer(handEl, fromHand);
+    risquePublicUpdateCardBacksContainer(stagingEl, 1);
+
+    var stagingCard = stagingEl && stagingEl.querySelector(".risque-public-card-back");
+    if (!split || !stagingWrap || !stagingCard) {
+      risquePublicReceiveCardFinishMergeAnim(toHand);
+      return;
+    }
+
+    var hostEl = split.parentElement || document.getElementById("risque-phase-content") || document.body;
+    var hostRect = hostEl.getBoundingClientRect();
+    var sRect = stagingCard.getBoundingClientRect();
+    var handRect = handEl ? handEl.getBoundingClientRect() : sRect;
+    var w = Math.max(32, sRect.width || 48);
+    var h = Math.max(48, sRect.height || 72);
+    var startX = sRect.left - hostRect.left + sRect.width / 2;
+    var startY = sRect.top - hostRect.top + sRect.height / 2;
+    var targetX = handRect.left - hostRect.left + handRect.width / 2;
+    var targetY = handRect.top - hostRect.top + handRect.height / 2;
+
+    var flyer = document.createElement("img");
+    flyer.className = "risque-public-receivecard-flyer";
+    flyer.src = RISQUE_PUBLIC_CARDBACK_SRC;
+    flyer.alt = "";
+    flyer.decoding = "async";
+    flyer.style.width = w + "px";
+    flyer.style.height = h + "px";
+    flyer.style.left = startX - w / 2 + "px";
+    flyer.style.top = startY - h / 2 + "px";
+    hostEl.appendChild(flyer);
+    stagingCard.style.opacity = "0.15";
+
+    var dx = targetX - startX;
+    var dy = targetY - startY;
+    var done = false;
+    function finishFly() {
+      if (done) return;
+      done = true;
+      if (flyer.parentNode) flyer.parentNode.removeChild(flyer);
+      stagingCard.style.opacity = "";
+      if (stagingWrap) stagingWrap.classList.remove("risque-public-receivecard-staging-wrap--merging");
+      if (handPane) handPane.classList.remove("risque-public-receivecard-pane--merge-target");
+      risquePublicReceiveCardFinishMergeAnim(toHand);
+    }
+
+    flyer.addEventListener("transitionend", function onFlyEnd(ev) {
+      if (ev.propertyName !== "transform") return;
+      flyer.removeEventListener("transitionend", onFlyEnd);
+      finishFly();
+    });
+    _pubRc.mergeFallbackTimer = setTimeout(finishFly, 900);
+
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        flyer.classList.add("risque-public-receivecard-flyer--active");
+        flyer.style.transform = "translate(" + dx + "px, " + dy + "px) scale(1.05)";
+      });
+    });
+  }
+
   /**
    * Stable id for “same committed hand / same step list” — intentionally ignores proc.seq so mirror
    * polling does not reset the hand-preview timer when only seq churns.
@@ -2004,6 +2152,9 @@
         delete forDisk.risquePublicCardplaySpectatorHandCount;
         delete forDisk.risquePublicCardplaySpectatorPlayer;
       }
+      if (!/^(receivecard|getcard|con-receivecard)$/i.test(String(gs.phase || ""))) {
+        delete forDisk.risquePublicReceiveCardSpectator;
+      }
       if (!risqueFrozenPublicBoardMirrorActive(String(gs.phase || ""))) {
         delete forDisk.risquePublicDeployProcessing;
         delete forDisk.risquePublicDeployAckRequiredSeq;
@@ -2109,6 +2260,9 @@
         };
       } else {
         delete out.risqueDeployMirrorDraft;
+      }
+      if (!/^(receivecard|getcard|con-receivecard)$/i.test(phMir)) {
+        delete out.risquePublicReceiveCardSpectator;
       }
       if (
         !window.risqueDisplayIsPublic &&
@@ -4905,6 +5059,75 @@
     }, Number(proc.stepMs) > 0 ? Number(proc.stepMs) : DEPLOY_PUBLIC_STEP_MS);
   }
 
+  /** Reinforce transfer: rack DOWN on FROM and rack UP on TO in the same ticks. */
+  function risquePublicReinforceRunTransferAnim() {
+    var proc = _pubDeploy.proc;
+    var gs = window.gameState;
+    var tr = proc && proc.transfer;
+    if (!proc || !gs || !tr) {
+      risquePublicDeployRunStep(0);
+      return;
+    }
+    var fromLabel = String(tr.fromLabel || "");
+    var toLabel = String(tr.toLabel || "");
+    var srcB = Math.floor(Number(tr.srcBefore) || 0);
+    var srcF = Math.floor(Number(tr.srcAfter) || 0);
+    var dstB = Math.floor(Number(tr.dstBefore) || 0);
+    var dstF = Math.floor(Number(tr.dstAfter) || 0);
+    var moved = Math.max(0, Math.floor(Number(tr.moved) || 0));
+    if (!fromLabel || !toLabel || moved < 1) {
+      _pubDeploy.phase = "hold";
+      _pubDeploy.holdTimer = setTimeout(function () {
+        _pubDeploy.holdTimer = null;
+        _pubDeploy.phase = "done";
+        risquePublicDeployFinish(gs);
+      }, Number(proc.holdMs) > 0 ? Number(proc.holdMs) : DEPLOY_PUBLIC_HOLD_MS);
+      return;
+    }
+    var tickMs = Number(proc.stepMs) > 0 ? Number(proc.stepMs) : 70;
+    var tick = 0;
+    _pubDeploy.revealedDeltas = _pubDeploy.revealedDeltas || {};
+    _pubDeploy.troopOverrides = _pubDeploy.troopOverrides || {};
+    _pubDeploy.troopOverrides[fromLabel] = srcB;
+    _pubDeploy.troopOverrides[toLabel] = dstB;
+    delete _pubDeploy.revealedDeltas[toLabel];
+    risquePublicDeployApplyPlaybackToWindow();
+    risquePublicDeployRedrawMap();
+
+    function runTransferTick() {
+      tick += 1;
+      var stepN = Math.min(tick, moved);
+      _pubDeploy.troopOverrides[fromLabel] = srcB - stepN;
+      _pubDeploy.troopOverrides[toLabel] = dstB + stepN;
+      _pubDeploy.revealedDeltas[toLabel] = stepN;
+      risquePublicDeployApplyPlaybackToWindow();
+      risquePublicDeployRedrawMap();
+      if (tick >= moved) {
+        _pubDeploy.troopOverrides[fromLabel] = srcF;
+        _pubDeploy.troopOverrides[toLabel] = dstF;
+        _pubDeploy.revealedDeltas[toLabel] = moved;
+        risquePublicDeployApplyPlaybackToWindow();
+        risquePublicDeployRedrawMap();
+        _pubDeploy.phase = "hold";
+        _pubDeploy.holdTimer = setTimeout(function () {
+          _pubDeploy.holdTimer = null;
+          _pubDeploy.phase = "done";
+          risquePublicDeployFinish(gs);
+        }, Number(proc.holdMs) > 0 ? Number(proc.holdMs) : DEPLOY_PUBLIC_HOLD_MS);
+        return;
+      }
+      _pubDeploy.stepTimer = setTimeout(function () {
+        _pubDeploy.stepTimer = null;
+        runTransferTick();
+      }, tickMs);
+    }
+
+    _pubDeploy.stepTimer = setTimeout(function () {
+      _pubDeploy.stepTimer = null;
+      runTransferTick();
+    }, tickMs);
+  }
+
   function risquePublicDeploySequenceOnIncomingState(gs) {
     if (!window.risqueDisplayIsPublic || !gs) return;
     if (gs.risqueReplayPlaybackActive) {
@@ -4912,7 +5135,13 @@
       return;
     }
     var proc = gs.risquePublicDeployProcessing;
-    if (!proc || !proc.seq || !Array.isArray(proc.steps) || !proc.steps.length) {
+    var hasDeploySteps = proc && Array.isArray(proc.steps) && proc.steps.length > 0;
+    var hasReinforceTransfer =
+      proc &&
+      String(proc.kind || "") === "reinforce" &&
+      proc.transfer &&
+      Math.floor(Number(proc.transfer.moved) || 0) > 0;
+    if (!proc || !proc.seq || (!hasDeploySteps && !hasReinforceTransfer)) {
       if (_pubDeploy.seq != null && _pubDeploy.phase !== "idle") {
         resetPublicDeploySequence();
         risquePublicDeployRedrawMap();
@@ -4957,7 +5186,11 @@
     _pubDeploy.introTimer = setTimeout(function () {
       _pubDeploy.introTimer = null;
       _pubDeploy.phase = "step";
-      risquePublicDeployRunStep(0);
+      if (hasReinforceTransfer) {
+        risquePublicReinforceRunTransferAnim();
+      } else {
+        risquePublicDeployRunStep(0);
+      }
     }, DEPLOY_PUBLIC_INTRO_MS);
   }
 
@@ -7144,30 +7377,82 @@
   }
 
   /** Public TV: one line for current player’s hand size (mirrored from host, no card names). */
+  function risquePublicSpectatorPlayerNameMatches(gs, mirroredName) {
+    if (!gs || !gs.currentPlayer || mirroredName == null) return false;
+    var cp = String(gs.currentPlayer).trim();
+    var mir = String(mirroredName).trim();
+    if (!cp || !mir) return false;
+    var cpDisp = cp.charAt(0).toUpperCase() + cp.slice(1);
+    return mir === cp || mir === cpDisp || mir.toLowerCase() === cp.toLowerCase();
+  }
+
+  function risquePublicSpectatorHandCountFromGs(gs) {
+    if (!gs) return 0;
+    var cp = gs.currentPlayer ? String(gs.currentPlayer).trim() : "";
+    var pl =
+      gs.players && Array.isArray(gs.players)
+        ? gs.players.find(function (p) {
+            return p && p.name === cp;
+          })
+        : null;
+    if (pl && Array.isArray(pl.cards)) {
+      return Math.max(0, pl.cards.length);
+    }
+    var mirCount = gs.risquePublicCardplaySpectatorHandCount;
+    if (
+      typeof mirCount === "number" &&
+      Number.isFinite(mirCount) &&
+      risquePublicSpectatorPlayerNameMatches(gs, gs.risquePublicCardplaySpectatorPlayer)
+    ) {
+      return Math.max(0, Math.floor(mirCount));
+    }
+    if (pl && pl.cardCount != null && Number.isFinite(Number(pl.cardCount))) {
+      return Math.max(0, Math.floor(Number(pl.cardCount)));
+    }
+    return 0;
+  }
+
+  var RISQUE_PUBLIC_CARDBACK_SRC = "assets/images/Cards/CARDBACK.webp";
+
+  function risquePublicUpdateCardBacksContainer(container, count) {
+    if (!container) return;
+    var n = Math.max(0, Math.floor(Number(count) || 0));
+    var imgs = container.querySelectorAll(".risque-public-card-back");
+    if (imgs.length === n) return;
+    container.innerHTML = "";
+    if (n <= 0) {
+      container.hidden = true;
+      container.setAttribute("aria-hidden", "true");
+      return;
+    }
+    container.hidden = false;
+    container.removeAttribute("aria-hidden");
+    for (var i = 0; i < n; i += 1) {
+      var img = document.createElement("img");
+      img.className = "risque-public-card-back";
+      img.src = RISQUE_PUBLIC_CARDBACK_SRC;
+      img.alt = "";
+      img.decoding = "async";
+      img.width = 152;
+      img.height = 236;
+      container.appendChild(img);
+    }
+  }
+
   function risquePublicFormatCardplaySpectatorHandLine(gs) {
     if (!gs) return "";
-    var n = gs.risquePublicCardplaySpectatorHandCount;
     var disp = gs.risquePublicCardplaySpectatorPlayer != null ? String(gs.risquePublicCardplaySpectatorPlayer).trim() : "";
     if (!disp && gs.currentPlayer) {
       var nm = String(gs.currentPlayer);
       disp = nm.charAt(0).toUpperCase() + nm.slice(1);
     }
     if (!disp) disp = "Player";
-    if (typeof n !== "number" || !Number.isFinite(n)) {
-      var cp = gs.currentPlayer;
-      var pl =
-        gs.players && Array.isArray(gs.players)
-          ? gs.players.find(function (p) {
-              return p && p.name === cp;
-            })
-          : null;
-      n = pl && Array.isArray(pl.cards) ? pl.cards.length : pl && pl.cardCount != null ? Number(pl.cardCount) : 0;
-      if (!Number.isFinite(n)) n = 0;
-    }
-    n = Math.max(0, Math.floor(n));
+    var n = risquePublicSpectatorHandCountFromGs(gs);
     return disp + " has " + n + " card" + (n === 1 ? "" : "s") + " in hand.";
   }
   window.risquePublicFormatCardplaySpectatorHandLine = risquePublicFormatCardplaySpectatorHandLine;
+  window.risquePublicSpectatorHandCountFromGs = risquePublicSpectatorHandCountFromGs;
+  window.risquePublicUpdateCardBacksContainer = risquePublicUpdateCardBacksContainer;
 
   /**
    * TV: show “CARD PLAY IS PRIVATE” + hand count under the turn banner during draft cardplay; mirror updates
@@ -7220,13 +7505,164 @@
         '<div class="risque-public-private-hint" role="status">' +
         '<p class="risque-public-private-hint__lead">Card play is private — use the host screen to play cards.</p>' +
         '<p id="risque-public-cardplay-hand-count" class="risque-public-private-hint__count" aria-live="polite"></p>' +
+        '<div id="risque-public-cardplay-hand-backs" class="risque-public-hand-backs" aria-hidden="true"></div>' +
         "</div>";
       countEl = document.getElementById("risque-public-cardplay-hand-count");
     }
     if (countEl) {
       countEl.textContent = countText;
     }
+    var handBackCount = risquePublicSpectatorHandCountFromGs(gs);
+    var backsEl = document.getElementById("risque-public-cardplay-hand-backs");
+    if (!backsEl) {
+      var hintRoot = slot.querySelector(".risque-public-private-hint");
+      if (hintRoot && handBackCount > 0) {
+        backsEl = document.createElement("div");
+        backsEl.id = "risque-public-cardplay-hand-backs";
+        backsEl.className = "risque-public-hand-backs";
+        hintRoot.appendChild(backsEl);
+      }
+    }
+    backsEl = document.getElementById("risque-public-cardplay-hand-backs");
+    risquePublicUpdateCardBacksContainer(backsEl, handBackCount);
   }
+
+  /**
+   * Public TV receive-card: private hint + in-hand / staging card backs (mirrors host layout, no faces).
+   */
+  function risquePublicEnsureReceiveCardPrivateHint(gs) {
+    if (!window.risqueDisplayIsPublic || !gs) return;
+    var ph = String(gs.phase || "");
+    var slot = document.getElementById("risque-phase-content");
+    if (ph !== "receivecard" && ph !== "con-receivecard" && ph !== "getcard") {
+      if (slot) {
+        var staleRc = slot.querySelector(".risque-public-private-hint--receivecard");
+        if (staleRc) staleRc.remove();
+      }
+      risquePublicReceiveCardClearMergeAnimTimers();
+      _pubRc.playedMergeSeq = null;
+      return;
+    }
+    if (!slot) return;
+
+    var spec =
+      gs.risquePublicReceiveCardSpectator &&
+      typeof gs.risquePublicReceiveCardSpectator === "object"
+        ? gs.risquePublicReceiveCardSpectator
+        : {};
+    var conquestElim = !!(spec.conquestElim || gs.risqueConquestElimReceiveCard);
+    var lead = conquestElim
+      ? "Card transfer is private — use the host screen."
+      : "Card draw is private — use the host screen.";
+    var countText = risquePublicFormatCardplaySpectatorHandLine(gs);
+    var handLabel =
+      spec.handLabel != null && String(spec.handLabel).trim() !== ""
+        ? String(spec.handLabel).trim()
+        : "Cards in hand";
+    var stagingLabel =
+      spec.stagingLabel != null && String(spec.stagingLabel).trim() !== ""
+        ? String(spec.stagingLabel).trim()
+        : "Received card";
+    var handBackCount =
+      spec.handBackCount != null && Number.isFinite(Number(spec.handBackCount))
+        ? Math.max(0, Math.floor(Number(spec.handBackCount)))
+        : risquePublicSpectatorHandCountFromGs(gs);
+    var stagingBackCount =
+      spec.stagingBackCount != null && Number.isFinite(Number(spec.stagingBackCount))
+        ? Math.max(0, Math.floor(Number(spec.stagingBackCount)))
+        : 0;
+    var showStaging = spec.showStaging === true;
+    var mergeAnimSeq =
+      spec.mergeAnimSeq != null && Number.isFinite(Number(spec.mergeAnimSeq))
+        ? Number(spec.mergeAnimSeq)
+        : null;
+    if (
+      mergeAnimSeq &&
+      _pubRc.playedMergeSeq === mergeAnimSeq &&
+      !_pubRc.mergeAnimRunning
+    ) {
+      handBackCount =
+        spec.mergeFinalHandCount != null && Number.isFinite(Number(spec.mergeFinalHandCount))
+          ? Math.max(0, Math.floor(Number(spec.mergeFinalHandCount)))
+          : risquePublicSpectatorHandCountFromGs(gs);
+      stagingBackCount = 0;
+      showStaging = false;
+    } else if (mergeAnimSeq && mergeAnimSeq !== _pubRc.playedMergeSeq && !_pubRc.mergeAnimRunning) {
+      if (!slot.querySelector(".risque-public-private-hint--receivecard")) {
+        /* fall through to build shell below */
+      } else {
+        risquePublicReceiveCardPlayMergeAnim(spec);
+        return;
+      }
+    }
+    if (_pubRc.mergeAnimRunning) {
+      return;
+    }
+    if (spec.stagingMerged === true && !mergeAnimSeq) {
+      showStaging = false;
+      stagingBackCount = 0;
+      handBackCount = risquePublicSpectatorHandCountFromGs(gs);
+    }
+
+    if (!slot.querySelector(".risque-public-private-hint--receivecard")) {
+      slot.innerHTML =
+        '<div class="risque-public-private-hint risque-public-private-hint--receivecard" role="status">' +
+        '<p class="risque-public-private-hint__lead"></p>' +
+        '<p id="risque-public-receivecard-hand-count" class="risque-public-private-hint__count" aria-live="polite"></p>' +
+        '<div class="risque-public-receivecard-split">' +
+        '<div class="risque-public-receivecard-pane">' +
+        '<div id="risque-public-receivecard-hand-label" class="risque-public-receivecard-pane-label"></div>' +
+        '<div id="risque-public-receivecard-hand-backs" class="risque-public-hand-backs"></div>' +
+        "</div>" +
+        '<div id="risque-public-receivecard-staging-wrap" class="risque-public-receivecard-staging-wrap">' +
+        '<div id="risque-public-receivecard-staging-label" class="risque-public-receivecard-pane-label"></div>' +
+        '<div id="risque-public-receivecard-staging-backs" class="risque-public-hand-backs risque-public-hand-backs--staging"></div>' +
+        '<p id="risque-public-receivecard-merge-note" class="risque-public-receivecard-merge-note" hidden></p>' +
+        "</div>" +
+        "</div>" +
+        "</div>";
+    }
+    if (mergeAnimSeq && mergeAnimSeq !== _pubRc.playedMergeSeq) {
+      risquePublicReceiveCardPlayMergeAnim(spec);
+      return;
+    }
+    var leadEl = slot.querySelector(".risque-public-private-hint__lead");
+    if (leadEl) leadEl.textContent = lead;
+    var rcCountEl = document.getElementById("risque-public-receivecard-hand-count");
+    if (rcCountEl) rcCountEl.textContent = countText;
+    var handLblEl = document.getElementById("risque-public-receivecard-hand-label");
+    if (handLblEl) handLblEl.textContent = handLabel;
+    var stLblEl = document.getElementById("risque-public-receivecard-staging-label");
+    if (stLblEl) stLblEl.textContent = stagingLabel;
+    var stWrap = document.getElementById("risque-public-receivecard-staging-wrap");
+    if (stWrap) {
+      if (showStaging) {
+        stWrap.removeAttribute("hidden");
+      } else {
+        stWrap.hidden = true;
+      }
+    }
+    risquePublicUpdateCardBacksContainer(
+      document.getElementById("risque-public-receivecard-hand-backs"),
+      handBackCount
+    );
+    risquePublicUpdateCardBacksContainer(
+      document.getElementById("risque-public-receivecard-staging-backs"),
+      showStaging ? stagingBackCount : 0
+    );
+    if (
+      mergeAnimSeq &&
+      _pubRc.playedMergeSeq === mergeAnimSeq &&
+      !_pubRc.mergeAnimRunning
+    ) {
+      var mergeNoteDone = document.getElementById("risque-public-receivecard-merge-note");
+      if (mergeNoteDone) {
+        mergeNoteDone.textContent = "Added to hand above.";
+        mergeNoteDone.hidden = false;
+      }
+    }
+  }
+  window.risquePublicEnsureReceiveCardPrivateHint = risquePublicEnsureReceiveCardPrivateHint;
 
   function risquePublicSyncLoginFadeOverlay(gs) {
     if (!window.risqueDisplayIsPublic || !gs) return;
@@ -7505,6 +7941,7 @@
     risquePublicEnsureCardplayRecapPanel(gs);
     if (window.risqueDisplayIsPublic) {
       risquePublicEnsureCardplayPrivateHint(gs);
+      risquePublicEnsureReceiveCardPrivateHint(gs);
       risquePublicEnsureDeployPrivateHint(gs);
       risquePublicTryScheduleIncomeGateRelease(gs);
     }
@@ -10477,9 +10914,22 @@
   /** While awaiting host login, ignore non-login mirror payloads (stale mid-game saves). */
   function risquePublicShouldAcceptMirrorGameState(gs) {
     if (!window.__risquePublicTvAwaitingHostLogin) return true;
-    if (!gs || String(gs.phase || "") !== "login") return false;
-    window.__risquePublicTvAwaitingHostLogin = false;
-    return true;
+    if (!gs) return false;
+    if (String(gs.phase || "") === "login") {
+      window.__risquePublicTvAwaitingHostLogin = false;
+      return true;
+    }
+    /* Host may push a live mid-game board before login on a cold TV tab — accept if populated. */
+    if (
+      gs.players &&
+      Array.isArray(gs.players) &&
+      gs.players.length > 0 &&
+      String(gs.phase || "") !== "login"
+    ) {
+      window.__risquePublicTvAwaitingHostLogin = false;
+      return true;
+    }
+    return false;
   }
 
   function maybeEnsureRuntimeHud(gs) {
@@ -13542,20 +13992,33 @@
   }
 
   var state;
+  var publicTvResumedMidGameMirror = false;
   if (window.risqueDisplayIsPublic) {
     var rawMirror = localStorage.getItem(PUBLIC_MIRROR_KEY);
     var parsedMirror = rawMirror ? tryParse(rawMirror) : null;
-    if (publicTvBootstrap) {
-      risquePublicPrepareCleanTvBoot();
-      state = normalizeState(visualStateForLoginScreen(loadState()));
-    } else if (parsedMirror && String(parsedMirror.phase || "") === "login") {
-      state = normalizeState(parsedMirror);
-    } else if (
+    var midGameMirror =
       parsedMirror &&
       parsedMirror.players &&
       Array.isArray(parsedMirror.players) &&
-      parsedMirror.players.length
-    ) {
+      parsedMirror.players.length > 0 &&
+      String(parsedMirror.phase || "") !== "login";
+    if (publicTvBootstrap) {
+      if (midGameMirror) {
+        /* Ctrl+F5 mid-session: resume live mirror — do not wipe board or block host pushes. */
+        publicTvResumedMidGameMirror = true;
+        window.__risquePublicTvAwaitingHostLogin = false;
+        window.__risquePublicMirrorAppliedRaw = rawMirror;
+        state = normalizeState(parsedMirror);
+      } else {
+        risquePublicPrepareCleanTvBoot();
+        state = normalizeState(visualStateForLoginScreen(loadState()));
+      }
+    } else if (parsedMirror && String(parsedMirror.phase || "") === "login") {
+      state = normalizeState(parsedMirror);
+    } else if (midGameMirror) {
+      publicTvResumedMidGameMirror = true;
+      window.__risquePublicTvAwaitingHostLogin = false;
+      window.__risquePublicMirrorAppliedRaw = rawMirror;
       state = normalizeState(parsedMirror);
     } else {
       state = loadState();
@@ -14141,6 +14604,16 @@
     }
   } else {
     render(state, "Runtime booted");
+  }
+
+  if (publicTvResumedMidGameMirror && typeof risquePublicMirrorGameStateApply === "function") {
+    requestAnimationFrame(function () {
+      try {
+        risquePublicMirrorGameStateApply(state);
+      } catch (ePubResume) {
+        /* ignore */
+      }
+    });
   }
 
   window.addEventListener("resize", function () {

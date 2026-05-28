@@ -147,42 +147,26 @@ function abortReinforcePublishGate() {
   }
 }
 
-function buildReinforcePublishSteps(fromLabel, toLabel, srcBefore, dstBefore, srcAfter, dstAfter) {
-  const steps = [];
+function buildReinforceTransferPayload(fromLabel, toLabel, srcBefore, dstBefore, srcAfter, dstAfter) {
   const srcB = Math.floor(Number(srcBefore) || 0);
   const dstB = Math.floor(Number(dstBefore) || 0);
   const srcF = Math.floor(Number(srcAfter) || 0);
   const dstF = Math.floor(Number(dstAfter) || 0);
-  if (fromLabel && srcF !== srcB) {
-    steps.push({
-      label: fromLabel,
-      delta: 0,
-      finalTroops: srcF,
-      baselineTroops: srcB
-    });
-  }
-  const moved = dstF - dstB;
-  if (toLabel && moved > 0) {
-    steps.push({
-      label: toLabel,
-      delta: moved,
-      finalTroops: dstF,
-      baselineTroops: dstB
-    });
-  } else if (toLabel && dstF !== dstB) {
-    steps.push({
-      label: toLabel,
-      delta: 0,
-      finalTroops: dstF,
-      baselineTroops: dstB
-    });
-  }
-  steps.sort((a, b) => String(a.label).localeCompare(String(b.label)));
-  return steps;
+  const moved = Math.max(0, dstF - dstB);
+  if (!fromLabel || !toLabel || moved < 1) return null;
+  return {
+    fromLabel: String(fromLabel),
+    toLabel: String(toLabel),
+    srcBefore: srcB,
+    srcAfter: srcF,
+    dstBefore: dstB,
+    dstAfter: dstF,
+    moved: moved
+  };
 }
 
-function publishReinforceToTvThenAdvance(advanceFn, steps) {
-  if (!window.gameState || !Array.isArray(steps) || !steps.length) {
+function publishReinforceToTvThenAdvance(advanceFn, transfer) {
+  if (!window.gameState || !transfer || !transfer.moved) {
     if (typeof advanceFn === 'function') advanceFn();
     return;
   }
@@ -190,17 +174,16 @@ function publishReinforceToTvThenAdvance(advanceFn, steps) {
   const seq = Date.now();
   const nm = gameState.currentPlayer ? String(gameState.currentPlayer) : 'Player';
   const territoryBaseline = {};
-  steps.forEach(s => {
-    if (s && s.label && s.baselineTroops != null) {
-      territoryBaseline[s.label] = Number(s.baselineTroops) || 0;
-    }
-  });
+  territoryBaseline[transfer.fromLabel] = transfer.srcBefore;
+  territoryBaseline[transfer.toLabel] = transfer.dstBefore;
+  const tickMs = 70;
   gameState.risquePublicDeployProcessing = {
     seq: seq,
     playerName: nm,
     territoryBaseline: JSON.parse(JSON.stringify(territoryBaseline)),
-    steps: steps,
-    stepMs: 500,
+    steps: [],
+    transfer: transfer,
+    stepMs: tickMs,
     holdMs: 1500,
     finalPlayers: JSON.parse(JSON.stringify(gameState.players)),
     introPrimary: nm.toUpperCase() + ' REINFORCES',
@@ -237,9 +220,10 @@ function publishReinforceToTvThenAdvance(advanceFn, steps) {
   refreshReinforceCompactHud();
 
   const introMs = 400;
-  const stepMs = 500;
+  const tickMsAnim = tickMs;
   const holdMs = 1500;
-  const animMs = introMs + steps.length * stepMs + holdMs + 200;
+  const moved = Math.max(1, Math.floor(Number(transfer.moved) || 0));
+  const animMs = introMs + moved * tickMsAnim + holdMs + 200;
   let gateDone = false;
   function completePublishGate() {
     if (gateDone) return;
@@ -1243,7 +1227,7 @@ function confirmReinforceMove() {
   } else {
     reinforceCommitWasSplit = false;
   }
-  const publishSteps = buildReinforcePublishSteps(
+  const publishTransfer = buildReinforceTransferPayload(
     fromName,
     toName,
     srcTroopBefore,
@@ -1260,7 +1244,7 @@ function confirmReinforceMove() {
   publishReinforceToTvThenAdvance(function () {
     clearReinforcePublishFields();
     reinforceProceedAfterReinforce();
-  }, publishSteps);
+  }, publishTransfer);
 }
 
 function handleReinforceTerritoryClick(label, owner, troops) {

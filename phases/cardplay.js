@@ -1479,9 +1479,18 @@
               '<div class="risque-public-private-hint" role="status">' +
               '<p class="risque-public-private-hint__lead">Card play is private — use the host screen to play cards.</p>' +
               '<p id="risque-public-cardplay-hand-count" class="risque-public-private-hint__count" aria-live="polite"></p>' +
+              '<div id="risque-public-cardplay-hand-backs" class="risque-public-hand-backs" aria-hidden="true"></div>' +
               "</div>";
             var countPub = document.getElementById("risque-public-cardplay-hand-count");
             if (countPub) countPub.textContent = handPub || "";
+            if (typeof window.risquePublicUpdateCardBacksContainer === "function") {
+              window.risquePublicUpdateCardBacksContainer(
+                document.getElementById("risque-public-cardplay-hand-backs"),
+                typeof window.risquePublicSpectatorHandCountFromGs === "function"
+                  ? window.risquePublicSpectatorHandCountFromGs(gameState)
+                  : 0
+              );
+            }
           }
           requestAnimationFrame(function () {
             if (window.risqueRuntimeHud) window.risqueRuntimeHud.syncPosition();
@@ -3799,7 +3808,8 @@
       });
       if (!cur) return;
       var unplayed = getUnplayedCards();
-      var n = unplayed.length;
+      var n = Array.isArray(cur.cards) ? cur.cards.length : unplayed.length;
+      cur.cardCount = n;
       var nm = String(cur.name || "Player");
       var nameDisp = nm.charAt(0).toUpperCase() + nm.slice(1);
       window.gameState.risquePublicCardplaySpectatorHandCount = n;

@@ -43,7 +43,7 @@ let pendingConditionalThreshold = null;
 /** Pausable blitz interval and PAUSE campaign combat-round cadence (public TV sync). */
 const PAUSABLE_BLITZ_MS = 1000;
 /** Dice “spin” duration before reveal in pausable blitz (matches desired TV/readability beat). */
-const PAUSABLE_BLITZ_SPIN_MS = 1000;
+const PAUSABLE_BLITZ_SPIN_MS = 500;
 /** Pause after reveal before the next pausable-blitz round (independent of spin length). */
 const PAUSABLE_BLITZ_GAP_AFTER_REVEAL_MS = 1000;
 /** Instant Blitz / Campaign Instant / Instant COND: ms between combat rounds (~4/sec) for troop-loss flash readability. */
@@ -65,8 +65,13 @@ function clearSingleRollRevealTimer() {
     singleRollRevealTimer = null;
   }
 }
-/** PAUSE campaign: timed rounds like pausable blitz (shared cadence with PAUSABLE_BLITZ_MS). */
-let pauseCampaignInterval = null;
+/** PAUSE campaign: timed rounds like pausable blitz (spin → reveal → gap, not a blind interval). */
+let pauseCampaignRevealTimer = null;
+let pauseCampaignGapTimer = null;
+/** Bumped when gap timers are cleared — stale gap callbacks must no-op. */
+let pauseCampaignRollGeneration = 0;
+/** Bumped when a new spin supersedes a pending reveal — stale reveal callbacks must no-op. */
+let pauseCampaignRevealGeneration = 0;
 let isPauseCampaignRunning = false;
 let pauseCampaignHopI = 0;
 let pauseCampaignOutcomes = [];
@@ -460,13 +465,53 @@ function clearPauseCampaignBetweenHopsTimer() {
   }
 }
 
+function clearPauseCampaignGapTimers() {
+  pauseCampaignRollGeneration += 1;
+  if (pauseCampaignGapTimer) {
+    clearTimeout(pauseCampaignGapTimer);
+    pauseCampaignGapTimer = null;
+  }
+}
+
+function clearPauseCampaignRevealTimer() {
+  pauseCampaignRevealGeneration += 1;
+  if (pauseCampaignRevealTimer) {
+    clearTimeout(pauseCampaignRevealTimer);
+    pauseCampaignRevealTimer = null;
+  }
+}
+
+function clearPauseCampaignRoundTimers() {
+  clearPauseCampaignGapTimers();
+  clearPauseCampaignRevealTimer();
+}
+
+function schedulePauseCampaignGap() {
+  if (!isPauseCampaignRunning || isPauseCampaignPaused) return;
+  if (pauseCampaignGapTimer) clearTimeout(pauseCampaignGapTimer);
+  const gapGen = pauseCampaignRollGeneration;
+  pauseCampaignGapTimer = setTimeout(() => {
+    pauseCampaignGapTimer = null;
+    if (!isPauseCampaignRunning || isPauseCampaignPaused) return;
+    if (gapGen !== pauseCampaignRollGeneration) return;
+    pauseCampaignRoundTick();
+  }, PAUSABLE_BLITZ_GAP_AFTER_REVEAL_MS);
+}
+
+/** Let the last revealed dice paint (host + mirror) before teardown clears risqueLastDiceDisplay. */
+function pauseCampaignFinalizeAfterRevealPaint(fn) {
+  const done = typeof fn === 'function' ? fn : pauseCampaignFinalize;
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () {
+      done();
+    });
+  });
+}
+
 function stopPauseCampaignExecutionInternal() {
   clearSingleRollRevealTimer();
   clearPauseCampaignBetweenHopsTimer();
-  if (pauseCampaignInterval) {
-    clearInterval(pauseCampaignInterval);
-    pauseCampaignInterval = null;
-  }
+  clearPauseCampaignRoundTimers();
   isPauseCampaignRunning = false;
   isPauseCampaignPaused = false;
   pauseCampaignPausedBetweenHops = false;
@@ -564,9 +609,14 @@ function updateBattlePanelReadout() {
       };
     } else {
       window.gameState.risqueBattleHudReadout = null;
-      /* Keep last revealed rolls during post-capture transfer (attacker set, defender null). */
+      /* Keep last revealed rolls on screen until a new roll starts or phase changes. */
       if (!attacker && !defender) {
-        window.gameState.risqueLastDiceDisplay = null;
+        const keepCampStepDice =
+          window.gameState.risqueLastDiceDisplay &&
+          window.gameState.risqueLastDiceDisplay.spinning !== true;
+        if (!keepCampStepDice) {
+          window.gameState.risqueLastDiceDisplay = null;
+        }
       }
     }
   }
@@ -4871,10 +4921,8 @@ function pauseCampaignFinalize() {
 }
 
 function pauseCampaignBeginNextHopOrFinish() {
-  if (pauseCampaignInterval) {
-    clearInterval(pauseCampaignInterval);
-    pauseCampaignInterval = null;
-  }
+  if (!isPauseCampaignRunning) return;
+  clearPauseCampaignGapTimers();
   const cp = campaignCommittedPath;
   if (!cp || cp.length < 2 || !window.gameState) {
     pauseCampaignFinalize();
@@ -4944,7 +4992,6 @@ function pauseCampaignBeginNextHopOrFinish() {
     window.gameUtils.renderTerritories(null, window.gameState);
 
     pauseCampaignRoundTick();
-    pauseCampaignInterval = setInterval(pauseCampaignRoundTick, PAUSABLE_BLITZ_MS);
     return;
   }
 
@@ -4956,10 +5003,7 @@ function toggleCampaignStepPause() {
   const cur = window.gameState && window.gameState.currentPlayer ? window.gameState.currentPlayer : '';
   if (!isPauseCampaignPaused) {
     isPauseCampaignPaused = true;
-    if (pauseCampaignInterval) {
-      clearInterval(pauseCampaignInterval);
-      pauseCampaignInterval = null;
-    }
+    clearPauseCampaignRoundTimers();
     if (pauseCampaignBetweenHopsTimer) {
       clearTimeout(pauseCampaignBetweenHopsTimer);
       pauseCampaignBetweenHopsTimer = null;
@@ -4990,7 +5034,6 @@ function toggleCampaignStepPause() {
       pauseCampaignBeginNextHopOrFinish();
     } else {
       pauseCampaignRoundTick();
-      pauseCampaignInterval = setInterval(pauseCampaignRoundTick, PAUSABLE_BLITZ_MS);
     }
     prependCombatLog(`${cur}: Campaign Step RESUMED.`, 'voice');
     if (window.risqueRuntimeHud && typeof window.risqueRuntimeHud.setControlVoiceText === 'function') {
@@ -5009,6 +5052,11 @@ function pauseCampaignRoundTick() {
   if (isPauseCampaignPaused) return;
   if (!attacker || !defender) return;
 
+  const atkLive = territorySnapshot(attacker.label);
+  const defLive = territorySnapshot(defender.label);
+  if (atkLive) attacker.troops = atkLive.troops;
+  if (defLive) defender.troops = defLive.troops;
+
   if (campaignType === 'cond' && campaignCondFromPauseRow && campaignCondThreshold != null) {
     syncConditionCountdownMirror();
   }
@@ -5019,10 +5067,7 @@ function pauseCampaignRoundTick() {
     campaignCondThreshold != null &&
     attacker.troops <= campaignCondThreshold
   ) {
-    if (pauseCampaignInterval) {
-      clearInterval(pauseCampaignInterval);
-      pauseCampaignInterval = null;
-    }
+    clearPauseCampaignRoundTimers();
     /* Stack is still on the attacking territory (from), not the hop target (defender). */
     pauseCampaignMirrorStopLabel = attacker.label;
     pauseCampaignStopped = `Campaign Step CON: CONDITIONAL STOP — attacking stack ≤ ${campaignCondThreshold}.`;
@@ -5031,28 +5076,26 @@ function pauseCampaignRoundTick() {
     return;
   }
 
-  if (attacker.troops <= 1 || defender.troops <= 0) {
-    if (attacker.troops <= 1 && defender.troops > 0) {
-      if (pauseCampaignInterval) {
-        clearInterval(pauseCampaignInterval);
-        pauseCampaignInterval = null;
-      }
-      pauseCampaignMirrorStopLabel = attacker.label;
-      pauseCampaignStopped = `Battle failed: ${prettyTerritoryName(attacker.label)} → ${prettyTerritoryName(
-        defender.label
-      )} (${pauseCampaignRoundsThisHop} round(s)); defender held.`;
-      campaignTrace('pause:hop_fail', { from: attacker.label, to: defender.label, rounds: pauseCampaignRoundsThisHop });
-      pauseCampaignFinalize();
-    }
+  if (defender.troops <= 0) {
+    if (pauseCampaignRevealTimer) return;
+    clearPauseCampaignGapTimers();
+    pauseCampaignBeginNextHopOrFinish();
+    return;
+  }
+  if (attacker.troops <= 1) {
+    clearPauseCampaignRoundTimers();
+    pauseCampaignMirrorStopLabel = attacker.label;
+    pauseCampaignStopped = `Battle failed: ${prettyTerritoryName(attacker.label)} → ${prettyTerritoryName(
+      defender.label
+    )} (${pauseCampaignRoundsThisHop} round(s)); defender held.`;
+    campaignTrace('pause:hop_fail', { from: attacker.label, to: defender.label, rounds: pauseCampaignRoundsThisHop });
+    pauseCampaignFinalize();
     return;
   }
 
   const minTroopsToSafelyConquerAndLeave = Math.max(2, pauseCampaignLeaveBehind * 2);
   if (attacker.troops < minTroopsToSafelyConquerAndLeave) {
-    if (pauseCampaignInterval) {
-      clearInterval(pauseCampaignInterval);
-      pauseCampaignInterval = null;
-    }
+    clearPauseCampaignRoundTimers();
     pauseCampaignMirrorStopLabel = attacker.label;
     pauseCampaignStopped = `Campaign halted before next roll: ${prettyTerritoryName(attacker.label)} has ${attacker.troops} troop(s), need at least ${minTroopsToSafelyConquerAndLeave} to keep leaving ${pauseCampaignLeaveBehind}.`;
     campaignTrace('pause:campaign_halt_prevent_low_garrison', {
@@ -5069,15 +5112,26 @@ function pauseCampaignRoundTick() {
   pauseCampaignRoundsThisHop += 1;
   const snap = simulateBattleRound();
   if (!snap) {
-    if (pauseCampaignInterval) {
-      clearInterval(pauseCampaignInterval);
-      pauseCampaignInterval = null;
-    }
+    clearPauseCampaignRoundTimers();
     pauseCampaignMirrorStopLabel = attacker && attacker.label ? attacker.label : null;
     pauseCampaignStopped = 'Campaign Step: battle simulation failed.';
     pauseCampaignFinalize();
     return;
   }
+  const revealGen = ++pauseCampaignRevealGeneration;
+  startDiceSpinForSnap(snap);
+  pauseCampaignRevealTimer = setTimeout(() => {
+    pauseCampaignRevealTimer = null;
+    if (!isPauseCampaignRunning || isPauseCampaignPaused) return;
+    if (revealGen !== pauseCampaignRevealGeneration) return;
+    pauseCampaignRevealAndApply(snap, revealGen);
+  }, PAUSABLE_BLITZ_SPIN_MS);
+}
+
+function pauseCampaignRevealAndApply(snap, revealGen) {
+  if (!isPauseCampaignRunning || isPauseCampaignPaused) return;
+  if (revealGen != null && revealGen !== pauseCampaignRevealGeneration) return;
+  if (!attacker || !defender) return;
   revealDiceFromSnap(snap);
   const cpPause = campaignCommittedPath;
   const res = applyBattleRoundAfterRoll(snap, {
@@ -5092,10 +5146,7 @@ function pauseCampaignRoundTick() {
     syncConditionCountdownMirror();
   }
   if (res.conquered) {
-    if (pauseCampaignInterval) {
-      clearInterval(pauseCampaignInterval);
-      pauseCampaignInterval = null;
-    }
+    clearPauseCampaignGapTimers();
     if (
       window.gameState &&
       (window.gameState.risqueCampaignInterruptedByElimination === true ||
@@ -5142,28 +5193,36 @@ function pauseCampaignRoundTick() {
         fromL
       )} after capturing ${prettyTerritoryName(toL)} — cannot keep leaving ${pauseCampaignLeaveBehind} on each territory. Continue manually from here.`;
       campaignTrace('pause:campaign_halt_weak_garrison', { from: fromL, to: toL, leaveBehind: pauseCampaignLeaveBehind });
-      pauseCampaignFinalize();
+      pauseCampaignFinalizeAfterRevealPaint();
+      return;
+    }
+    const cpDone = campaignCommittedPath;
+    const noMoreHops =
+      !cpDone || cpDone.length < 2 || pauseCampaignHopI >= cpDone.length - 1;
+    if (noMoreHops) {
+      pauseCampaignFinalizeAfterRevealPaint();
       return;
     }
     clearPauseCampaignBetweenHopsTimer();
     pauseCampaignBetweenHopsTimer = setTimeout(() => {
       pauseCampaignBetweenHopsTimer = null;
+      if (!isPauseCampaignRunning || isPauseCampaignPaused) return;
       pauseCampaignBeginNextHopOrFinish();
     }, PAUSABLE_BLITZ_MS);
     return;
   }
   if (attacker.troops <= 1 && defender.troops > 0) {
-    if (pauseCampaignInterval) {
-      clearInterval(pauseCampaignInterval);
-      pauseCampaignInterval = null;
-    }
+    clearPauseCampaignRoundTimers();
     pauseCampaignMirrorStopLabel = attacker.label;
     pauseCampaignStopped = `Battle failed: ${prettyTerritoryName(attacker.label)} → ${prettyTerritoryName(
       defender.label
     )} (${pauseCampaignRoundsThisHop} round(s)); defender held.`;
     campaignTrace('pause:hop_fail', { from: attacker.label, to: defender.label, rounds: pauseCampaignRoundsThisHop });
-    pauseCampaignFinalize();
+    pauseCampaignFinalizeAfterRevealPaint();
+    return;
   }
+  if (!isPauseCampaignRunning || isPauseCampaignPaused) return;
+  schedulePauseCampaignGap();
 }
 
 function runPauseCampaignExecution() {

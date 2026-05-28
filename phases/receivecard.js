@@ -83,6 +83,123 @@
     return arr;
   }
 
+  /** Mirror in-hand + staging layout for public TV (card backs only, no card names). */
+  function refreshReceiveCardPublicSpectatorMirror(opts) {
+    opts = opts || {};
+    if (window.risqueDisplayIsPublic || !window.gameState) return;
+    var gs = window.gameState;
+    if (!gs.players || !Array.isArray(gs.players)) return;
+    var cur = gs.players.find(function (p) {
+      return p && p.name === gs.currentPlayer;
+    });
+    if (!cur) return;
+    cur.cards = cur.cards || [];
+    var nHand = cur.cards.length;
+    var transferredCount = Math.max(0, Number(gs.transferredCardCount) || 0);
+    var conquestElimReview = !!(gs.risqueConquestElimReceiveCard);
+    var drawnName = gs.lastCardDrawn != null ? String(gs.lastCardDrawn) : "";
+    var lastCard = nHand > 0 ? cur.cards[nHand - 1] : null;
+    var lastName = lastCard ? (typeof lastCard === "string" ? lastCard : lastCard.name) : "";
+    var stagingShowsNewDraw =
+      !!gs.cardAwardedThisTurn &&
+      drawnName &&
+      lastName === drawnName &&
+      nHand >= 1 &&
+      !conquestElimReview;
+
+    var handLabel = "Cards in hand";
+    var stagingLabel = "Received card";
+    var handBackCount = nHand;
+    var stagingBackCount = 0;
+    var showStaging = true;
+
+    var mergeAnimSeq = null;
+    var mergeAnimFromHand = null;
+    var mergeFinalHandCount = null;
+    var stagingMergedFlag = false;
+
+    if (
+      (window.__risqueReceiveCardStagingMerged || opts.forceMergeAnim === true) &&
+      stagingShowsNewDraw &&
+      nHand >= 1
+    ) {
+      if (opts.forceMergeAnim === true || window.__risqueReceiveCardStagingMerged) {
+        handBackCount = Math.max(0, nHand - 1);
+        stagingBackCount = 1;
+        showStaging = true;
+        mergeAnimFromHand = Math.max(0, nHand - 1);
+        mergeFinalHandCount = nHand;
+        mergeAnimSeq = Date.now();
+        stagingMergedFlag = false;
+      } else {
+        handBackCount = nHand;
+        stagingBackCount = 0;
+        showStaging = false;
+        stagingMergedFlag = true;
+      }
+    } else if (conquestElimReview && transferredCount > 0 && nHand >= transferredCount) {
+      handBackCount = nHand - transferredCount;
+      stagingBackCount = transferredCount;
+      var defeatedDisp =
+        gs.defeatedPlayer != null && String(gs.defeatedPlayer).trim() !== ""
+          ? String(gs.defeatedPlayer).trim()
+          : "eliminated player";
+      handLabel = "Your hand (before transfer)";
+      stagingLabel = "Cards taken from " + defeatedDisp;
+    } else if (stagingShowsNewDraw) {
+      handBackCount = Math.max(0, nHand - 1);
+      stagingBackCount = 1;
+    } else if (!conquestElimReview) {
+      handBackCount = nHand;
+      stagingBackCount = 0;
+      showStaging = false;
+    } else {
+      handBackCount = nHand;
+      stagingBackCount = transferredCount;
+      showStaging = transferredCount > 0;
+      if (transferredCount > 0) {
+        var defeatedDisp2 =
+          gs.defeatedPlayer != null && String(gs.defeatedPlayer).trim() !== ""
+            ? String(gs.defeatedPlayer).trim()
+            : "eliminated player";
+        stagingLabel = "Cards taken from " + defeatedDisp2;
+      } else {
+        showStaging = false;
+      }
+    }
+
+    var nm = String(cur.name || "Player");
+    var nameDisp = nm.charAt(0).toUpperCase() + nm.slice(1);
+    cur.cardCount = nHand;
+    gs.risquePublicCardplaySpectatorHandCount = nHand;
+    gs.risquePublicCardplaySpectatorPlayer = nameDisp;
+    gs.risquePublicReceiveCardSpectator = {
+      handLabel: handLabel,
+      stagingLabel: stagingLabel,
+      handBackCount: handBackCount,
+      stagingBackCount: stagingBackCount,
+      showStaging: showStaging,
+      conquestElim: conquestElimReview,
+      stagingMerged: stagingMergedFlag,
+      mergeAnimSeq: mergeAnimSeq,
+      mergeAnimFromHand: mergeAnimFromHand,
+      mergeFinalHandCount: mergeFinalHandCount
+    };
+    try {
+      localStorage.setItem("gameState", JSON.stringify(gs));
+    } catch (eSave) {
+      /* ignore */
+    }
+    if (typeof window.risqueMirrorPushGameState === "function") {
+      try {
+        window.risqueMirrorPushGameState();
+      } catch (eMir) {
+        /* ignore */
+      }
+    }
+  }
+  window.refreshReceiveCardPublicSpectatorMirror = refreshReceiveCardPublicSpectatorMirror;
+
   function receiveCardGenerateUUID() {
     return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
       var r = (Math.random() * 16) | 0;
@@ -326,6 +443,7 @@
     receiveCardApplyStagingMergeUi();
     window.__risqueReceiveCardStagingMerged = true;
     window.__risqueReceiveCardStagingMergeNeeded = false;
+    refreshReceiveCardPublicSpectatorMirror({ forceMergeAnim: true });
     var btn = document.getElementById("receivecard-btn-end");
     if (btn) {
       btn.disabled = true;
@@ -1029,6 +1147,7 @@
     } catch (eV) {
       /* ignore */
     }
+    refreshReceiveCardPublicSpectatorMirror();
   }
 
   /**
@@ -1336,17 +1455,10 @@
         }
         var slotP = document.getElementById("risque-phase-content");
         if (slotP) {
-          if (conquestElim) {
-            slotP.innerHTML =
-              '<div class="risque-public-private-hint" role="status">' +
-              "CARD TRANSFER IS PRIVATE — USE THE HOST SCREEN." +
-              "</div>";
-          } else {
-            slotP.innerHTML =
-              '<div class="risque-public-private-hint" role="status">' +
-              "CARD DRAW IS PRIVATE — USE THE HOST SCREEN." +
-              "</div>";
-          }
+          slotP.innerHTML = "";
+        }
+        if (typeof window.risquePublicEnsureReceiveCardPrivateHint === "function" && window.gameState) {
+          window.risquePublicEnsureReceiveCardPrivateHint(window.gameState);
         }
         requestAnimationFrame(function () {
           window.risqueRuntimeHud.syncPosition();
