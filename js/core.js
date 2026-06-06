@@ -158,6 +158,179 @@ window.gameUtils = {
     if (!gameState || typeof gameState !== 'object') return;
     if (!Array.isArray(gameState.discardPile)) gameState.discardPile = [];
   },
+  /** Territory card names currently assigned on the board (not in the draw pile). */
+  risqueTerritoryCardNamesOnBoard: function (gameState) {
+    var onBoard = {};
+    if (!gameState || !Array.isArray(gameState.players)) return onBoard;
+    gameState.players.forEach(function (p) {
+      (p.territories || []).forEach(function (terr) {
+        if (terr && terr.name) onBoard[terr.name] = true;
+      });
+    });
+    return onBoard;
+  },
+  /** Card names that may legally sit in the draw pile (not in a hand or discard bin). */
+  risqueEligibleDrawPileCardNames: function (gameState) {
+    var inHand = {};
+    var discard = {};
+    this.risqueEnsureDiscardPile(gameState);
+    (gameState.discardPile || []).forEach(function (n) {
+      if (n) discard[n] = true;
+    });
+    if (gameState && Array.isArray(gameState.players)) {
+      gameState.players.forEach(function (p) {
+        (p.cards || []).forEach(function (c) {
+          var nm = typeof c === 'string' ? c : (c && c.name);
+          if (nm) inHand[nm] = true;
+        });
+      });
+    }
+    return this.cardNames.filter(function (card) {
+      return !inHand[card] && !discard[card];
+    });
+  },
+  /**
+   * Sanitize the draw pile without reshuffling: drop unknown, duplicate, or
+   * ineligible cards (already in a hand or the discard bin) while preserving order.
+   * Returns 'sanitized' or 'ok'. Shuffling happens only at game start and when
+   * the discard pile is merged back into an exhausted deck.
+   */
+  risqueValidateDrawDeck: function (gameState) {
+    if (!gameState) return 'ok';
+    var self = this;
+    var eligibleSet = {};
+    this.risqueEligibleDrawPileCardNames(gameState).forEach(function (c) {
+      eligibleSet[c] = true;
+    });
+
+    if (!Array.isArray(gameState.deck)) {
+      gameState.deck = [];
+      return 'sanitized';
+    }
+
+    var sanitized = [];
+    var seen = {};
+    var changed = false;
+    for (var i = 0; i < gameState.deck.length; i++) {
+      var card = gameState.deck[i];
+      if (self.cardNames.indexOf(card) === -1) {
+        changed = true;
+        continue;
+      }
+      if (!eligibleSet[card] || seen[card]) {
+        changed = true;
+        continue;
+      }
+      seen[card] = true;
+      sanitized.push(card);
+    }
+
+    if (changed) {
+      gameState.deck = sanitized;
+      return 'sanitized';
+    }
+    return 'ok';
+  },
+  /**
+   * Draw the top card of the shuffled deck (shift). Deck order is fixed after each
+   * shuffle until exhausted; played cards sit in discard until the pile is reshuffled.
+   */
+  risqueDrawDeckCard: function (gameState) {
+    if (!gameState) return null;
+    this.risqueMaybeReshuffleDiscardIntoDeck(gameState);
+    this.risqueValidateDrawDeck(gameState);
+    if (!Array.isArray(gameState.deck) || gameState.deck.length === 0) return null;
+    return gameState.deck.shift();
+  },
+  /**
+   * Read-only draw-pile snapshot for console checks (host window):
+   * risqueDebugDeck() or risqueDebugDeck({ full: true })
+   */
+  risqueInspectDrawPile: function (gameState, opts) {
+    opts = opts || {};
+    gameState =
+      gameState ||
+      (typeof window !== 'undefined' && window.gameState ? window.gameState : null);
+    if (!gameState) return { error: 'no gameState' };
+    this.risqueEnsureDiscardPile(gameState);
+    var deck = Array.isArray(gameState.deck) ? gameState.deck.slice() : [];
+    var discard = (gameState.discardPile || []).slice();
+    var eligible = this.risqueEligibleDrawPileCardNames(gameState);
+    var wildcardStatus = function (name) {
+      var inHand = null;
+      (gameState.players || []).forEach(function (p) {
+        (p.cards || []).forEach(function (c) {
+          var nm = typeof c === 'string' ? c : (c && c.name);
+          if (nm === name) inHand = p.name;
+        });
+      });
+      return {
+        inDeckAt: deck.indexOf(name),
+        inDiscard: discard.indexOf(name) !== -1,
+        inHand: inHand,
+        eligible: eligible.indexOf(name) !== -1
+      };
+    };
+    var out = {
+      deckLength: deck.length,
+      discardLength: discard.length,
+      nextCard: deck[0] || null,
+      wildcard1: wildcardStatus('wildcard1'),
+      wildcard2: wildcardStatus('wildcard2'),
+      deckTop12: deck.slice(0, 12),
+      discard: discard.slice()
+    };
+    if (opts.full) out.deckFull = deck;
+    return out;
+  },
+  /**
+   * Log + persist a deck snapshot (console, gameLogs, localStorage, save folder when disk API active).
+   * After setup deploy completes the game writes deck-check-latest.json for out-of-browser checks.
+   */
+  risqueLogDeckSnapshot: function (gameState, tag) {
+    var snap = this.risqueInspectDrawPile(gameState, { full: true });
+    snap.tag = tag || 'snapshot';
+    snap.at = new Date().toISOString();
+    snap.phase = gameState ? gameState.phase : null;
+    snap.round = gameState != null ? gameState.round : null;
+    console.log('[RISQUE deck snapshot]', snap);
+    try {
+      var logs = JSON.parse(localStorage.getItem('gameLogs') || '[]');
+      if (!Array.isArray(logs)) logs = [];
+      logs.push(
+        '[DeckCheck] ' +
+          snap.tag +
+          ': deck=' +
+          snap.deckLength +
+          ' w1=' +
+          JSON.stringify(snap.wildcard1) +
+          ' w2=' +
+          JSON.stringify(snap.wildcard2) +
+          ' next=' +
+          (snap.nextCard || 'null')
+      );
+      localStorage.setItem('gameLogs', JSON.stringify(logs.slice(-200)));
+    } catch (eLog) {
+      /* ignore */
+    }
+    try {
+      localStorage.setItem('risqueDeckCheckLatest', JSON.stringify(snap));
+    } catch (eLs) {
+      /* ignore */
+    }
+    if (
+      typeof window.risqueLocalDiskWrite === 'function' &&
+      typeof window.risqueLocalDiskIsActive === 'function' &&
+      window.risqueLocalDiskIsActive()
+    ) {
+      window.risqueLocalDiskWrite('deck-check-latest.json', JSON.stringify(snap, null, 2)).catch(
+        function () {
+          /* ignore */
+        }
+      );
+    }
+    return snap;
+  },
   risqueShuffleStringArray: function (arr) {
     var copy = Array.isArray(arr) ? arr.slice() : [];
     for (var i = copy.length - 1; i > 0; i--) {
@@ -169,7 +342,8 @@ window.gameUtils = {
     return copy;
   },
   /**
-   * When the draw pile is empty but the discard has cards, shuffle discard into the deck (Risk-style).
+   * When the draw pile is empty but the discard has cards, shuffle the discard bin
+   * into a new deck (Risk-style). Cards still in player hands stay in hands.
    */
   risqueMaybeReshuffleDiscardIntoDeck: function (gameState) {
     this.risqueEnsureDiscardPile(gameState);
@@ -1221,14 +1395,20 @@ window.gameUtils = {
         };
         risqueCoreDebugLog('[Core] Initialized continentCollectionCounts:', gameState.continentCollectionCounts);
       }
-      if (gameState.phase === 'getcard' && gameState.deck && gameState.deck.length > 0) {
+      if (gameState.phase === 'getcard') {
         const currentPlayer = gameState.players.find(p => p.name === gameState.currentPlayer);
-        if (currentPlayer) {
-          const card = gameState.deck.shift();
+        const card =
+          typeof this.risqueDrawDeckCard === 'function'
+            ? this.risqueDrawDeckCard(gameState)
+            : null;
+        if (currentPlayer && card) {
           currentPlayer.cards = currentPlayer.cards || [];
           currentPlayer.cards.push(card);
           currentPlayer.cardCount = currentPlayer.cards.length;
           risqueCoreDebugLog(`[Core] Drew card ${card} for ${currentPlayer.name}`);
+        }
+        if (!card) {
+          risqueCoreDebugLog('[Core] getcard: no card available to draw');
         }
         const currentIndex = gameState.turnOrder.indexOf(gameState.currentPlayer);
         const nextIndex = (currentIndex + 1) % gameState.turnOrder.length;
@@ -2856,6 +3036,14 @@ if (window.gameUtils && typeof window.gameUtils.installNumericInputClearOnFocus 
 if (!window.RISQUE_MOCK_MAKER) {
   window.gameUtils.init();
 }
+window.risqueDebugDeck = function (opts) {
+  var snap =
+    window.gameUtils && typeof window.gameUtils.risqueInspectDrawPile === 'function'
+      ? window.gameUtils.risqueInspectDrawPile(window.gameState, opts)
+      : { error: 'gameUtils.risqueInspectDrawPile unavailable' };
+  console.log('[RISQUE deck]', snap);
+  return snap;
+};
 
 (function risqueInstallHostMapRedrawSuppressWrappers() {
   var gu = window.gameUtils;

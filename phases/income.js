@@ -474,21 +474,19 @@
             !!(gameState.risqueCombatDeckPending || gameState.cardplayConquered || gameState.risqueEliminationDeckOwed);
           var deferElimDeckToReceiveCard = !!gameState.risqueEliminationDeckOwed;
           if (oweConquestDeck && !deferElimDeckToReceiveCard) {
-            var deck = gameState.deck;
-            if (deck && deck.length > 0) {
-              var raw = deck.shift();
-              var cardName =
-                typeof raw === "string" ? raw : raw && raw.name ? String(raw.name) : "";
-              if (cardName) {
-                currentPlayer.cards.push({ name: cardName, id: conquerIncomeNewCardId() });
-                currentPlayer.cardCount = currentPlayer.cards.length;
-                gameState.cardAwardedThisTurn = true;
-                logToStorage("Card awarded for conquest (con-income)", {
-                  player: currentPlayer.name,
-                  card: cardName,
-                  fromCombatPending: !!gameState.risqueCombatDeckPending
-                });
-              }
+            var cardName =
+              window.gameUtils && typeof window.gameUtils.risqueDrawDeckCard === "function"
+                ? window.gameUtils.risqueDrawDeckCard(gameState)
+                : null;
+            if (cardName) {
+              currentPlayer.cards.push({ name: cardName, id: conquerIncomeNewCardId() });
+              currentPlayer.cardCount = currentPlayer.cards.length;
+              gameState.cardAwardedThisTurn = true;
+              logToStorage("Card awarded for conquest (con-income)", {
+                player: currentPlayer.name,
+                card: cardName,
+                fromCombatPending: !!gameState.risqueCombatDeckPending
+              });
             } else {
               gameState.cardAwardedThisTurn = true;
             }

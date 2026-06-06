@@ -10638,6 +10638,17 @@
     } else if (!Array.isArray(state.discardPile)) {
       state.discardPile = [];
     }
+    if (
+      window.gameUtils &&
+      typeof window.gameUtils.risqueMaybeReshuffleDiscardIntoDeck === "function" &&
+      (!Array.isArray(state.deck) || state.deck.length === 0)
+    ) {
+      window.gameUtils.risqueMaybeReshuffleDiscardIntoDeck(state);
+    }
+    if (window.gameUtils && typeof window.gameUtils.risqueValidateDrawDeck === "function") {
+      window.gameUtils.risqueValidateDrawDeck(state);
+      return;
+    }
     var used = {};
     state.players.forEach(function (p) {
       p.cards.forEach(function (c) {
@@ -10645,26 +10656,11 @@
         if (name) used[name] = true;
       });
     });
-    var discardSet = {};
     (state.discardPile || []).forEach(function (n) {
-      if (n) discardSet[n] = true;
+      if (n) used[n] = true;
     });
     state.deck = ensureArray(state.deck, []).filter(function (name) {
-      return CARD_NAMES.indexOf(name) !== -1 && !used[name] && !discardSet[name];
-    });
-    if (
-      state.deck.length === 0 &&
-      window.gameUtils &&
-      typeof window.gameUtils.risqueMaybeReshuffleDiscardIntoDeck === "function"
-    ) {
-      window.gameUtils.risqueMaybeReshuffleDiscardIntoDeck(state);
-      discardSet = {};
-      (state.discardPile || []).forEach(function (n) {
-        if (n) discardSet[n] = true;
-      });
-    }
-    state.deck = ensureArray(state.deck, []).filter(function (name) {
-      return CARD_NAMES.indexOf(name) !== -1 && !used[name] && !discardSet[name];
+      return CARD_NAMES.indexOf(name) !== -1 && !used[name];
     });
   }
 
@@ -10690,14 +10686,18 @@
     if (state.cardAwardedThisTurn) {
       return state.lastCardDrawn ? "Card already awarded: " + state.lastCardDrawn : "Card already processed";
     }
-    ensureDeck(state);
-    if (!state.deck.length) {
+    var cardName = null;
+    if (window.gameUtils && typeof window.gameUtils.risqueDrawDeckCard === "function") {
+      cardName = window.gameUtils.risqueDrawDeckCard(state);
+    } else {
+      ensureDeck(state);
+      if (state.deck.length) cardName = state.deck.shift();
+    }
+    if (!cardName) {
       state.cardAwardedThisTurn = true;
       state.lastCardDrawn = null;
       return "No available card in deck";
     }
-    var idx = Math.floor(Math.random() * state.deck.length);
-    var cardName = state.deck.splice(idx, 1)[0];
     player.cards.push({ name: cardName, id: makeId() });
     player.cardCount = player.cards.length;
     state.lastCardDrawn = cardName;

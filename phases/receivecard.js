@@ -72,17 +72,6 @@
     }
   }
 
-  function receiveCardShuffleArray(array) {
-    var arr = array.slice();
-    for (var i = arr.length - 1; i > 0; i -= 1) {
-      var j = Math.floor(Math.random() * (i + 1));
-      var t = arr[i];
-      arr[i] = arr[j];
-      arr[j] = t;
-    }
-    return arr;
-  }
-
   /** Mirror in-hand + staging layout for public TV (card backs only, no card names). */
   function refreshReceiveCardPublicSpectatorMirror(opts) {
     opts = opts || {};
@@ -219,53 +208,25 @@
 
   function receiveCardValidateDeck() {
     var gs = window.gameState;
-    if (!gs || !window.gameUtils || !window.gameUtils.cardNames) return;
-    var allPlayerCards = gs.players.reduce(function (acc, player) {
-      var cards = player.cards || [];
-      return acc.concat(cards.map(function (card) {
-        return typeof card === "string" ? card : card.name;
-      }));
-    }, []);
-    var discard = Array.isArray(gs.discardPile) ? gs.discardPile : [];
-    var validDeck = window.gameUtils.cardNames.filter(function (card) {
-      return allPlayerCards.indexOf(card) === -1 && discard.indexOf(card) === -1;
-    });
-    if (
-      !gs.deck ||
-      !Array.isArray(gs.deck) ||
-      gs.deck.length <= 2 ||
-      !gs.deck.every(function (card) {
-        return window.gameUtils.cardNames.indexOf(card) !== -1;
-      })
-    ) {
-      gs.deck = receiveCardShuffleArray(validDeck.slice());
-      receiveCardLog("Deck invalid or too small, reset", { totalCards: gs.deck.length });
+    if (!gs || !window.gameUtils || typeof window.gameUtils.risqueValidateDrawDeck !== "function") {
+      return;
     }
-    if (
-      gs.deck.some(function (card) {
-        return allPlayerCards.indexOf(card) !== -1 || discard.indexOf(card) !== -1;
-      })
-    ) {
-      gs.deck = receiveCardShuffleArray(validDeck.slice());
-      receiveCardLog("Deck overlapped hands/discard, reset", { totalCards: gs.deck.length });
+    var result = window.gameUtils.risqueValidateDrawDeck(gs);
+    if (result === "sanitized") {
+      receiveCardLog("Deck sanitized", { totalCards: gs.deck.length });
     }
   }
 
   function receiveCardDrawCard() {
     var gs = window.gameState;
-    if (
-      window.gameUtils &&
-      typeof window.gameUtils.risqueMaybeReshuffleDiscardIntoDeck === "function"
-    ) {
-      window.gameUtils.risqueMaybeReshuffleDiscardIntoDeck(gs);
-    }
-    receiveCardValidateDeck();
-    if (!gs.deck || gs.deck.length === 0) {
+    var card =
+      window.gameUtils && typeof window.gameUtils.risqueDrawDeckCard === "function"
+        ? window.gameUtils.risqueDrawDeckCard(gs)
+        : null;
+    if (!card) {
       receiveCardLog("No cards available to draw");
       return null;
     }
-    var randomIndex = Math.floor(Math.random() * gs.deck.length);
-    var card = gs.deck.splice(randomIndex, 1)[0];
     return { name: card, id: receiveCardGenerateUUID() };
   }
 

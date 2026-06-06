@@ -1015,6 +1015,9 @@
           } else {
             persistGameStateLite(gameState);
           }
+          if (window.gameUtils && typeof window.gameUtils.risqueLogDeckSnapshot === "function") {
+            window.gameUtils.risqueLogDeckSnapshot(gameState, "post-setup-deploy");
+          }
           if (uiOverlay) uiOverlay.classList.remove("fade-out");
           setTimeout(function () {
             if (typeof window.risqueSetMirrorDeployRoute === "function") {

@@ -147,13 +147,8 @@
 
     function finishDealAndAdvance() {
       window.__risqueDealRunActive = false;
-      gameState.deck = gameState.deck.filter(function (t) {
-        return !gameState.players.some(function (p) {
-          return p.territories.some(function (terr) {
-            return terr.name === t;
-          });
-        });
-      });
+      /* Territories are dealt from TERRITORIES[], not from gameState.deck — leave the
+       * shuffled 44-card draw pile untouched (Risk-style: board ownership ≠ deck removal). */
       gameState.currentPlayer = gameState.turnOrder[0];
       gameState.phase = "deal";
       gameState.selectionPhase = "deployOrder";
