@@ -195,11 +195,18 @@ html.risque-view-host #error {
   animation: rollDice 0.5s linear infinite;
   transform-box: fill-box;
   transform-origin: center;
+  opacity: 1;
 }
 @keyframes rollDice {
-  from { transform: rotate(0deg) scale(1); opacity: 1; }
-  50% { transform: rotate(540deg) scale(1.08); opacity: 0.75; }
-  to { transform: rotate(1080deg) scale(1); opacity: 1; }
+  from { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(540deg) scale(1.08); }
+  to { transform: rotate(1080deg) scale(1); }
+}
+
+/* Attack HUD dice: keep full red/white contrast while spinning (no inherited fade). */
+.attack-die.dice-rolling {
+  opacity: 1 !important;
+  filter: none;
 }
 
 .dice-text-hidden {
@@ -1620,13 +1627,12 @@ html.risque-view-public .risque-public-ghost-replay-save {
 /*
  * TV dimming: never set opacity on #hud-attack-chrome itself — opacity compounds on descendants,
  * so PAUSE/CANCEL could not appear or behave fully active even with JS (disabled=false).
- * Dim only the dice row, main toolbar button row, and cond strip.
+ * Dim toolbar + cond strip only; dice stay full brightness (host + public overrides below).
  */
 .hud-attack-chrome.hud-chrome-disabled {
   pointer-events: none;
 }
 
-.hud-attack-chrome.hud-chrome-disabled .attack-dice-columns,
 .hud-attack-chrome.hud-chrome-disabled .attack-toolbar-strip .ucp-slot-strip-buttons,
 .hud-attack-chrome.hud-chrome-disabled .attack-dev-row-strip .ucp-slot-strip-buttons,
 .hud-attack-chrome.hud-chrome-disabled .attack-dev-row-cond {
@@ -6810,15 +6816,19 @@ html.risque-view-public body[data-risque-show-public-dice="1"] #hud-attack-chrom
 }
 
 /*
- * Host marks attack chrome non-interactive with .hud-chrome-disabled for TV — dice row uses opacity 0.45
- * on .attack-dice-columns (see base rules). Setting opacity on #hud-attack-chrome does NOT undo that on
- * descendants; public TV must force the dice columns back to full brightness.
+ * Host marks attack chrome non-interactive with .hud-chrome-disabled during Blitz/Campaign — toolbar dims;
+ * dice columns stay at full brightness on host and public TV.
  */
 .risque-view-public #hud-attack-chrome.hud-chrome-disabled {
   opacity: 1 !important;
 }
 
 html.risque-view-public .hud-attack-chrome.hud-chrome-disabled .attack-dice-columns {
+  opacity: 1 !important;
+}
+
+/* Host: dice stay bright during Blitz/Campaign rolls while toolbar remains dimmed. */
+body.risque-view-host .hud-attack-chrome.hud-chrome-disabled .attack-dice-columns {
   opacity: 1 !important;
 }
 
